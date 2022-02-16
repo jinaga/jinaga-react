@@ -123,7 +123,7 @@ const MessageView = jinagaContainer(j, messageMapping);
 
 You can now use this container component as a regular React component.
 It has a prop called `fact` that takes the starting point of the graph.
-It also takes any unbound props that were added un the call to `mapProps`.`to`.
+It also takes any unbound props that were added in the call to `mapProps`.`to`.
 
 ```javascript
 const message = new Message("Twas Brillig", user, new Channel("General"), new Date());
@@ -167,4 +167,13 @@ const channelMapping = channelSpec(( { identifier, Messages }) => (
 The collection component will render all of the results of the template function using the child mapping, and in the specified order.
 
 There are loads of ways to compose specifications and mappings.
-Check out all of the field specification functions to explore all of the options.
+The field specification functions include:
+
+| Function | Purpose | Example |
+| -- | -- | -- |
+| field | Pluck one field from the fact. Also used to fetch the fact itself. | `text: field(m => m.text)` |
+| projection | Map a single child component. | `UserView: projection(userViewMapping)` |
+| collection | Map a collection of child components. | `Messages: collection(j.for(messagesInChannel), messageMapping)` |
+| property | Match a single value of a mutable property. | `name: property(j.for(nameOfUser), n => n.value, "<user>")` |
+| mutable | Match all candidate values of a mutable property. | `name: mutable(j.for(nameOfUser), userNames => userNames.map(n => n.value) .join(", "))` |
+| array | Construct an array of child objects. | `messages: array(j.for(messagesInChannel), { text: field(m => m.text) })` |
