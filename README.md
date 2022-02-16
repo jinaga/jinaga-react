@@ -175,5 +175,5 @@ The field specification functions include:
 | projection | Map a single child component. | `UserView: projection(userViewMapping)` |
 | collection | Map a collection of child components. | `Messages: collection(j.for(messagesInChannel), messageMapping)` |
 | property | Match a single value of a mutable property. | `name: property(j.for(nameOfUser), n => n.value, "<user>")` |
-| mutable | Match all candidate values of a mutable property. | `name: mutable(j.for(nameOfUser), userNames => userNames.map(n => n.value) .join(", "))` |
+| mutable | Match all candidate values of a mutable property. | `name: mutable(j.for(nameOfUser), userNames => userNames.map(n => n.value).join(", "))` |
 | array | Construct an array of child objects. | `messages: array(j.for(messagesInChannel), { text: field(m => m.text) })` |
