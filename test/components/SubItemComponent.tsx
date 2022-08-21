@@ -5,7 +5,7 @@ import { SubItem, SubSubItem } from "../model";
 import { subSubItemMapping } from "./SubSubItemComponent";
 
 const subItemSpec = specificationFor(SubItem, {
-    createdAt: field(s => s.createdAt),
+    createdAt: field(s => s.createdAt as string),
     SubSubItems: collection(j.for(SubSubItem.inSubItem), subSubItemMapping)
 });
 
