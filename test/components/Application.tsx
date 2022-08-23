@@ -1,6 +1,6 @@
 import { Jinaga as j } from "jinaga";
 import * as React from "react";
-import { ascending, collection, field, mutable, property, specificationFor } from "../../src";
+import { ascending, collection, field, mapProps, mutable, property, specificationFor } from "../../src";
 import { Item, Name, Root } from "../model";
 import { lineItemMapping } from "./LineItem";
 
@@ -18,7 +18,7 @@ interface ApplicationExtraProps {
     greeting: string;
 }
 
-export const applicationMapping = applicationSpec<ApplicationExtraProps>(
+export const applicationMapping = mapProps(applicationSpec).to<ApplicationExtraProps>(
     ({ identifier, name, nameWithConflicts, Items, greeting }) => (
     <>
         <p data-testid="greeting">{greeting}</p>

@@ -44,7 +44,7 @@ export function jinagaContainer<M, VM, P>(
         render() {
             const PresentationComponent = mapping.PresentationComponent;
             const { fact, ...rest } = this.props;
-            const passThrough = rest as P;
+            const passThrough = rest as unknown as P;
             const store = this.state.store;
 
             const vm = store ? mapping.getMappingValue(store) : null;

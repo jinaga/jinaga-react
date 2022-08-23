@@ -1,6 +1,6 @@
 import { Jinaga as j } from "jinaga";
 import * as React from "react";
-import { field, specificationFor, collection } from "../../src";
+import { field, specificationFor, collection, mapProps } from "../../src";
 import { Item, SubItem } from "../model";
 import { subItemMapping } from "./SubItemComponent";
 
@@ -9,7 +9,7 @@ const lineItemSpec = specificationFor(Item, {
     SubItems: collection(j.for(SubItem.inItem), subItemMapping)
 });
 
-export const lineItemMapping = lineItemSpec<{ greeting: string }>(({ hash, greeting, SubItems }) =>
+export const lineItemMapping = mapProps(lineItemSpec).to<{ greeting: string }>(({ hash, greeting, SubItems }) =>
     <>
         <p data-testid="item_hash">{hash}</p>
         <p data-testid="item_greeting">{greeting}</p>
