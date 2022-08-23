@@ -1,18 +1,20 @@
 {
     "compilerOptions": {
         "module": "commonjs",
-        "target": "es5",
+        "target": "es6",
         "strict": true,
         "noImplicitAny": true,
         "strictNullChecks": true,
         "allowJs": false,
         "jsx": "react",
         "moduleResolution": "node",
+        "forceConsistentCasingInFileNames": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
         "sourceMap": true,
         "declaration": true,
-        "outDir": "./dist/types",
+        "outDir": "dist",
         "baseUrl": ".",
-        "lib": [ "dom", "es2015" ],
         "paths": {
             "*": [
                 "./node_modules/*",
@@ -23,9 +25,5 @@
     "include": [
         "src/**/*.ts",
         "src/**/*.tsx"
-    ],
-    "exclude": [
-        "node_modules",
-        "dist"
     ]
 }
