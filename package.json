@@ -34,7 +34,7 @@
     "react": "^18.2.0",
     "rimraf": "^3.0.2",
     "ts-jest": "^29.1.0",
-    "typescript": "^4.5.5"
+    "typescript": "^5.0.4"
   },
   "peerDependencies": {
     "jinaga": "^2.0 || ^3.0 || ^4.0",
