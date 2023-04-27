@@ -11,7 +11,7 @@ const subItemSpec = specificationFor(SubItem, {
 
 export const subItemMapping = mapProps(subItemSpec).to(({ createdAt, SubSubItems }) => (
     <>
-        <p data-testid="subitem_createdat">{createdAt}</p>
+        <p data-testid="subitem_createdat">{createdAt.toString()}</p>
         <SubSubItems />
     </>
 ));
