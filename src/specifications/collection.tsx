@@ -14,7 +14,7 @@ import { BeginWatch, FieldDeclaration, Mutator, OrderByDeclaration, WatchContext
  * @param mapping A specification mapping for the child elements
  * @param orderBy (Optional) A comparison function used to sort the collection
  */
-export function collection<M, U, VM extends HashMap, P, T>(
+export function collection<M, U extends object, VM extends HashMap, P, T>(
     preposition: Preposition<M, U>,
     mapping: Mapping<U, VM, P>,
     orderBy?: OrderByDeclaration<U, T>

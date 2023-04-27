@@ -11,7 +11,7 @@ import { BeginWatch, FieldDeclaration, Mutator, OrderByDeclaration, ViewModel, V
  * @param declaration A declaration of the fields of each result object
  * @param orderBy (Optional) A comparison function used to sort the array
  */
-export function array<M, U, VMD extends ViewModelDeclaration<U>, T>(
+export function array<M, U extends object, VMD extends ViewModelDeclaration<U>, T>(
     preposition: Preposition<M, U>,
     declaration: VMD,
     orderBy?: OrderByDeclaration<ViewModel<U, VMD>, T>

@@ -37,7 +37,7 @@ export function prior<Fact, T>(mutable: Mutable<Fact, T>) {
  * @param preposition A Jinaga preposition using `j.for`
  * @param resolver A function that determines a single value given an array of candidate facts
  */
-export function mutable<M, U, T>(
+export function mutable<M, U extends object, T>(
     preposition: Preposition<M, U>,
     resolver: (candidates: U[]) => T
 ) : FieldDeclaration<M, Mutable<U, T>> {
