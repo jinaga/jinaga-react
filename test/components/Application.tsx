@@ -53,7 +53,7 @@ export const Application = (props: ApplicationProps) => {
     }
 
     const { names, items } = data;
-    const name = names.length > 0 ? names[0].value : "";
+    const name = names.length > 0 ? names[names.length - 1].value : "";
     const nameWithConflicts = names.map(n => n.value).join(", ");
 
     return (
