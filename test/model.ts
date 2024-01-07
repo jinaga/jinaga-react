@@ -1,4 +1,4 @@
-import { Jinaga as j } from "jinaga";
+import { buildModel } from "jinaga";
 
 export class Root {
     static Type = 'Application.Root';
@@ -17,27 +17,6 @@ export class Item {
         public root: Root,
         public createdAt: Date | string
     ) { }
-
-    static inRoot(r: Root) {
-        return j.match(<Item>{
-            type: Item.Type,
-            root: r
-        }).suchThat(j.not(Item.isDeleted));
-    }
-
-    static deletedFromRoot(r: Root) {
-        return j.match(<Item>{
-            type: Item.Type,
-            root: r
-        }).suchThat(Item.isDeleted);
-    }
-
-    static isDeleted(i: Item) {
-        return j.exists(<ItemDeleted>{
-            type: ItemDeleted.Type,
-            item: i
-        });
-    }
 }
 
 export class ItemDeleted {
@@ -58,20 +37,6 @@ export class ItemDescription {
         public value: string,
         public prior: ItemDescription[]
     ) { }
-
-    static ofItem(i: Item) {
-        return j.match(<ItemDescription>{
-            type: ItemDescription.Type,
-            item: i
-        }).suchThat(ItemDescription.isCurrent);
-    }
-
-    static isCurrent(d: ItemDescription) {
-        return j.notExists(<ItemDescription>{
-            type: ItemDescription.Type,
-            prior: [d]
-        });
-    }
 }
 
 export class SubItem {
@@ -82,13 +47,6 @@ export class SubItem {
         public item: Item,
         public createdAt: Date | string
     ) { }
-
-    static inItem(i: Item) {
-        return j.match(<SubItem> {
-            type: SubItem.Type,
-            item: i
-        });
-    }
 }
 
 export class SubSubItem {
@@ -99,13 +57,6 @@ export class SubSubItem {
         public subItem: SubItem,
         public id: string
     ) { }
-
-    static inSubItem(si: SubItem) {
-        return j.match(<SubSubItem>{
-            type: SubSubItem.Type,
-            subItem: si
-        });
-    }
 }
 
 export class Name {
@@ -117,18 +68,28 @@ export class Name {
         public value: string,
         public prior: Name[]
     ) { }
-
-    static inRoot(r: Root) {
-        return j.match(<Name>{
-            type: Name.Type,
-            root: r
-        }).suchThat(Name.isCurrent);
-    }
-
-    static isCurrent(n: Name) {
-        return j.notExists(<Name> {
-            type: Name.Type,
-            prior: [n]
-        });
-    }
 }
+
+export const model = buildModel(b => b
+    .type(Root)
+    .type(Item, m => m
+        .predecessor("root", Root)
+    )
+    .type(ItemDeleted, m => m
+        .predecessor("item", Item)
+    )
+    .type(ItemDescription, m => m
+        .predecessor("item", Item)
+        .predecessor("prior", ItemDescription)
+    )
+    .type(SubItem, m => m
+        .predecessor("item", Item)
+    )
+    .type(SubSubItem, m => m
+        .predecessor("subItem", SubItem)
+    )
+    .type(Name, m => m
+        .predecessor("root", Root)
+        .predecessor("prior", Name)
+    )
+);

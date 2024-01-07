@@ -1,30 +1,70 @@
-import { Jinaga as j } from "jinaga";
+import { Jinaga } from "jinaga";
 import * as React from "react";
-import { ascending, collection, field, mapProps, mutable, property, specificationFor } from "../../src";
-import { Item, Name, Root } from "../model";
-import { lineItemMapping } from "./LineItem";
+import { useSpecifications } from "../../src";
+import { Item, ItemDeleted, Name, Root, SubItem, SubSubItem, model } from "../model";
+import { LineItem } from "./LineItem";
 
-const applicationSpec = specificationFor(Root, {
-    identifier: field(r => r.identifier),
-    name: property(j.for(Name.inRoot), n => n.value, ""),
-    nameWithConflicts: mutable(j.for(Name.inRoot), names => names
-        .map(n => n.value)
-        .join(", ")
-    ),
-    Items: collection(j.for(Item.inRoot), lineItemMapping, ascending(i => i.createdAt))
-});
+const namesOfRoot = model.given(Root).match((root, facts) =>
+    facts.ofType(Name)
+        .join(name => name.root, root)
+        .notExists(name => facts.ofType(Name)
+            .join(next => next.prior, name)
+        )
+)
 
-interface ApplicationExtraProps {
+const itemsInRoot = model.given(Root).match((root, facts) =>
+    facts.ofType(Item)
+        .join(item => item.root, root)
+        .notExists(item => facts.ofType(ItemDeleted)
+            .join(deleted => deleted.item, item)
+        )
+        .select(item => ({
+            hash: Jinaga.hash(item),
+            subItems: facts.ofType(SubItem)
+                .join(subitem => subitem.item, item)
+                .select(subitem => ({
+                    hash: Jinaga.hash(subitem),
+                    createdAt: subitem.createdAt,
+                    subSubItems: facts.ofType(SubSubItem)
+                        .join(subsubitem => subsubitem.subItem, subitem)
+                        .select(subsubitem => ({
+                            hash: Jinaga.hash(subsubitem),
+                            id: subsubitem.id
+                        }))
+                }))
+        }))
+)
+
+export type ApplicationProps = {
+    j: Jinaga;
     greeting: string;
+    root: Root | null;
 }
 
-export const applicationMapping = mapProps(applicationSpec).to<ApplicationExtraProps>(
-    ({ identifier, name, nameWithConflicts, Items, greeting }) => (
-    <>
-        <p data-testid="greeting">{greeting}</p>
-        <p data-testid="identifier">{identifier}</p>
-        <p data-testid="name">{name}</p>
-        <p data-testid="nameWithConflicts">{nameWithConflicts.value}</p>
-        <Items greeting={`Hola! ${greeting}!`} />
-    </>
-))
+export const Application = (props: ApplicationProps) => {
+    const { j, greeting, root } = props;
+    const { data } = useSpecifications(j, {
+        names: namesOfRoot,
+        items: itemsInRoot
+    }, root);
+
+    if (!data) {
+        return null;
+    }
+
+    const { names, items } = data;
+    const name = names.length > 0 ? names[0].value : "";
+    const nameWithConflicts = names.map(n => n.value).join(", ");
+
+    return (
+        <>
+            <p data-testid="greeting">{greeting}</p>
+            <p data-testid="identifier">{root?.identifier}</p>
+            <p data-testid="name">{name}</p>
+            <p data-testid="nameWithConflicts">{nameWithConflicts}</p>
+            {items.map(item => (
+                <LineItem key={item.hash} greeting={`Hola! ${greeting}!`} {...item} />
+            ))}
+        </>
+    );
+}

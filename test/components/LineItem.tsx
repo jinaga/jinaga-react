@@ -1,18 +1,22 @@
-import { Jinaga as j } from "jinaga";
 import * as React from "react";
-import { field, specificationFor, collection, mapProps } from "../../src";
-import { Item, SubItem } from "../model";
-import { subItemMapping } from "./SubItemComponent";
+import { SubItemComponent, SubItemProps } from "./SubItemComponent";
 
-const lineItemSpec = specificationFor(Item, {
-    hash: field(i => j.hash(i)),
-    SubItems: collection(j.for(SubItem.inItem), subItemMapping)
-});
+type LineItemProps = {
+    greeting: string;
+    hash: string;
+    subItems: SubItemProps[];
+};
 
-export const lineItemMapping = mapProps(lineItemSpec).to<{ greeting: string }>(({ hash, greeting, SubItems }) =>
-    <>
-        <p data-testid="item_hash">{hash}</p>
-        <p data-testid="item_greeting">{greeting}</p>
-        <SubItems />
-    </>
-);
+export const LineItem = (props: LineItemProps) => {
+    const { greeting, hash, subItems } = props;
+
+    return (
+        <>
+            <p data-testid="item_hash">{hash}</p>
+            <p data-testid="item_greeting">{greeting}</p>
+            {subItems.map(subItem => (
+                <SubItemComponent key={subItem.createdAt} {...subItem} />
+            ))}
+        </>
+    );
+}
