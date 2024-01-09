@@ -77,6 +77,10 @@ function factHashes(facts: any[]): string[] {
 }
 
 function removeObservables<TProjection>(projection: MakeObservable<TProjection>): TProjection {
+  return removeObservablesFromObject(projection) as TProjection;
+}
+
+function removeObservablesFromObject(projection: any): any {
   if (typeof projection === 'object') {
     // If it is an object, remove all observables from its properties.
     const result: any = {};
@@ -85,17 +89,17 @@ function removeObservables<TProjection>(projection: MakeObservable<TProjection>)
       // If the projection has a function called onAdded, then it is an observable collection.
       // Replace it with an array.
       if (typeof value === 'object' && typeof (value as any).onAdded === 'function') {
-        result[key] = [] as TProjection;
+        result[key] = [];
       }
       else {
-        result[key] = value;
+        result[key] = removeObservablesFromObject(value);
       }
     }
-    return result as TProjection;
+    return result;
   }
 
   // If it is not an object, it is a primitive value.
-  return projection as TProjection;
+  return projection;
 }
 
 function computeElementKey(element: any): string {
@@ -127,12 +131,13 @@ function watchObservables<TProjection>(projection: MakeObservable<TProjection>, 
         if (typeof (value as any).onAdded === 'function') {
           (value as any).onAdded((element: any) => {
             const elementKey = computeElementKey(element);
+            const elementWithoutObservables = removeObservables(element);
             setChildProjections(key as keyof TProjection, (list: any) => {
               if (list.some((p: any) => computeElementKey(p) === elementKey)) {
                 return list;
               }
               else {
-                return [...list, element];
+                return [...list, elementWithoutObservables];
               }
             });
 
