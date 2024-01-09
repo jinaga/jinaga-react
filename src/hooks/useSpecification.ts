@@ -130,8 +130,8 @@ function watchObservables<TProjection>(projection: MakeObservable<TProjection>, 
         // Call onAdded and prepare to set child projections.
         if (typeof (value as any).onAdded === 'function') {
           (value as any).onAdded((element: any) => {
-            const elementKey = computeElementKey(element);
             const elementWithoutObservables = removeObservables(element);
+            const elementKey = computeElementKey(elementWithoutObservables);
             setChildProjections(key as keyof TProjection, (list: any) => {
               if (list.some((p: any) => computeElementKey(p) === elementKey)) {
                 return list;
