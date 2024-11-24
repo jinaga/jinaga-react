@@ -1,4 +1,5 @@
 import { Jinaga, MakeObservable, SpecificationOf, computeObjectHash } from 'jinaga';
+import { Observer } from "jinaga/dist/observer/observer";
 import * as React from 'react';
 
 export type ProjectionOf<TSpecification> = TSpecification extends SpecificationOf<unknown, infer TProjection> ? TProjection : never;
@@ -24,45 +25,14 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
       return;
 
     const nonNullGiven = given as TGiven;
-    const watch = j.watch(specification, ...nonNullGiven, (projection: MakeObservable<TProjection>) => {
-      const element = removeObservables(projection);
-      const elementKey = computeElementKey(element);
-      setProjections(list => [...list, element]);
-
-      const setChildProjections = <TKey extends keyof TProjection>(key: TKey, updater: (childList: TProjection[TKey]) => TProjection[TKey]) => {
-        setProjections((list) => list.map((p) => {
-          if (computeElementKey(p) === elementKey) {
-            return {
-              ...p,
-              [key]: updater(p[key])
-            };
-          } else {
-            return p;
-          }
-        }));
-      };
-      watchObservables(projection, setChildProjections);
-
-      return (): void => {
-        setProjections(list => list.filter(p => computeElementKey(p) !== elementKey));
-      };
-    });
-    watch.cached()
-      .then(cacheReady => {
-        if (cacheReady) {
-          setState('ready');
-        } else {
-          setState('loading');
-          watch.loaded()
-            .catch(e => setError(e))
-            .finally(() => setState('ready'));
-        }
-      });
+    const onAdded = createOnAdded<TProjection>(setProjections);
+    const observer = j.watch(specification, ...nonNullGiven, onAdded);
+    manageState<TProjection>(observer, setState, setError);
     return () => {
       setState('uninitialized');
       setProjections([]);
       setError(null);
-      watch.stop();
+      observer.stop();
     };
   }, [...factHashes(given), specification, setProjections, setState, setError]);
 
@@ -70,6 +40,75 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
   const loading = state === 'loading';
   const data = (state === 'ready' && !error) ? projections : null;
   return { loading, data, error, clearError };
+}
+
+export function useSubscription<TGiven extends unknown[], TProjection>(j: Jinaga, specification: SpecificationOf<TGiven, TProjection>, ...given: NullableElements<TGiven>): SpecificationResult<TProjection> {
+
+  const [projections, setProjections] = React.useState<TProjection[]>([]);
+  const [state, setState] = React.useState<CacheState>('uninitialized');
+  const [error, setError] = React.useState<Error | null>(null);
+
+  React.useEffect(() => {
+    // Wait until all givens are specified.
+    if (given.some(g => g === null))
+      return;
+
+    const nonNullGiven = given as TGiven;
+    const onAdded = createOnAdded<TProjection>(setProjections);
+    const observer = j.subscribe(specification, ...nonNullGiven, onAdded);
+    manageState<TProjection>(observer, setState, setError);
+    return () => {
+      setState('uninitialized');
+      setProjections([]);
+      setError(null);
+      observer.stop();
+    };
+  }, [...factHashes(given), specification, setProjections, setState, setError]);
+
+  const clearError = React.useCallback(() => setError(null), [setError]);
+  const loading = state === 'loading';
+  const data = (state === 'ready' && !error) ? projections : null;
+  return { loading, data, error, clearError };
+}
+
+function createOnAdded<TProjection>(setProjections: React.Dispatch<React.SetStateAction<TProjection[]>>) {
+  return (projection: MakeObservable<TProjection>) => {
+    const element = removeObservables(projection);
+    const elementKey = computeElementKey(element);
+    setProjections(list => [...list, element]);
+
+    const setChildProjections = <TKey extends keyof TProjection>(key: TKey, updater: (childList: TProjection[TKey]) => TProjection[TKey]) => {
+      setProjections((list) => list.map((p) => {
+        if (computeElementKey(p) === elementKey) {
+          return {
+            ...p,
+            [key]: updater(p[key])
+          };
+        } else {
+          return p;
+        }
+      }));
+    };
+    watchObservables(projection, setChildProjections);
+
+    return (): void => {
+      setProjections(list => list.filter(p => computeElementKey(p) !== elementKey));
+    };
+  };
+}
+
+function manageState<TProjection>(observer: Observer<TProjection>, setState: React.Dispatch<React.SetStateAction<CacheState>>, setError: React.Dispatch<React.SetStateAction<Error | null>>) {
+  observer.cached()
+    .then(cacheReady => {
+      if (cacheReady) {
+        setState('ready');
+      } else {
+        setState('loading');
+        observer.loaded()
+          .catch(e => setError(e))
+          .finally(() => setState('ready'));
+      }
+    });
 }
 
 function factHashes(facts: any[]): string[] {
