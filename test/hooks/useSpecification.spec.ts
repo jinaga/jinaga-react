@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { JinagaTest } from "jinaga";
+import { act } from "react";
 import { useSpecification } from "../../src";
 import { Item, ItemDeleted, ItemDescription, Root, model } from "../model";
 
@@ -58,7 +59,8 @@ describe("useSpecification", () => {
     expect(result.current.loading).toBeFalsy();
     expect(result.current.error).toBeNull();
 
-    const item = await j.fact(new Item(root, new Date()));
+    const item = await act(async () =>
+      await j.fact(new Item(root, new Date())));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
@@ -79,7 +81,8 @@ describe("useSpecification", () => {
     expect(result.current.loading).toBeFalsy();
     expect(result.current.error).toBeNull();
 
-    await j.fact(new ItemDeleted(item));
+    await act(async () =>
+      await j.fact(new ItemDeleted(item)));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
@@ -133,7 +136,8 @@ describe("useSpecification", () => {
     expect(result.current.error).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([description]));
 
-    const replacement = await j.fact(new ItemDescription(item, "replacement", [description]));
+    const replacement = await act(async () =>
+      await j.fact(new ItemDescription(item, "replacement", [description])));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
