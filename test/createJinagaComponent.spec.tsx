@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { Jinaga, JinagaBrowser } from "jinaga";
 import * as React from "react";
 import { Application } from "./components/Application";
@@ -16,8 +16,8 @@ describe("Specification For", () => {
     afterEach(cleanup);
 
     it("should pass through properties", async () => {
-        const { findByTestId } = render(<Application j={j} root={root} greeting="Shalom" />);
-        const identifier = await findByTestId("greeting") as HTMLElement;
+        render(<Application j={j} root={root} greeting="Shalom" />);
+        const identifier = await screen.findByTestId("greeting") as HTMLElement;
         expect(identifier.innerHTML).toBe("Shalom");
     });
 
@@ -87,16 +87,16 @@ describe("Specification For", () => {
         const item = await j.fact(new Item(new Root("home"), new Date()));
         await j.fact(new ItemDeleted(item));
 
-        const { queryByTestId } = render(<Application j={j} root={root} greeting="Are you there?" />);
-        const element = await queryByTestId("item_hash");
+        render(<Application j={j} root={root} greeting="Are you there?" />);
+        const element = await screen.queryByTestId("item_hash");
         expect(element).toBe(null);
     });
 
     it("should pass parameters to collections", async () => {
         await j.fact(new Item(new Root("home"), new Date()));
 
-        const { findByTestId } = render(<Application j={j} root={root} greeting="Bienvenidos" />);
-        const element = await findByTestId("item_greeting");
+        render(<Application j={j} root={root} greeting="Bienvenidos" />);
+        const element = await screen.findByTestId("item_greeting");
         expect(element).toBeInstanceOf(HTMLElement);
         if (element instanceof HTMLElement) {
             expect(element.innerHTML).toBe("Hola! Bienvenidos!");
@@ -122,22 +122,22 @@ describe("Specification For", () => {
     });
 
     it("should get new fields when fact changes", async () => {
-        const { findByTestId, rerender } = render(<Application j={j} root={root} greeting="Hello" />);
-        const identifier = await findByTestId("identifier") as HTMLElement;
+        const { rerender } = render(<Application j={j} root={root} greeting="Hello" />);
+        const identifier = await screen.findByTestId("identifier") as HTMLElement;
         expect(identifier.innerHTML).toBe("home");
 
         rerender(<Application j={j} root={new Root("away")} greeting="Goodby" />);
-        const secondIdentifier = await findByTestId("identifier") as HTMLElement;
+        const secondIdentifier = await screen.findByTestId("identifier") as HTMLElement;
         expect(secondIdentifier.innerHTML).toBe("away");
     });
 
     it("should get new props when they change", async () => {
-        const { findByTestId, rerender } = render(<Application j={j} root={root} greeting="Hello" />);
-        const greeting = await findByTestId("greeting") as HTMLElement;
+        const { rerender } = render(<Application j={j} root={root} greeting="Hello" />);
+        const greeting = await screen.findByTestId("greeting") as HTMLElement;
         expect(greeting.innerHTML).toBe("Hello");
 
         rerender(<Application j={j} root={root} greeting="Goodby" />);
-        const secondGreeting = await findByTestId("greeting") as HTMLElement;
+        const secondGreeting = await screen.findByTestId("greeting") as HTMLElement;
         expect(secondGreeting.innerHTML).toBe("Goodby");
     });
 
@@ -154,8 +154,8 @@ describe("Specification For", () => {
     }
 
     async function whenGetTestValue(testId: string) {
-        const { findByTestId } = render(<Application j={j} root={root} greeting="Hello" />);
-        const identifier = await findByTestId(testId) as HTMLElement;
+        render(<Application j={j} root={root} greeting="Hello" />);
+        const identifier = await screen.findByTestId(testId) as HTMLElement;
         return identifier.innerHTML;
     }
 });
