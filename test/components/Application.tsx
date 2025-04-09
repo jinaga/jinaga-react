@@ -1,39 +1,28 @@
 import { Jinaga } from "jinaga";
 import * as React from "react";
-import { useSpecifications } from "../../src";
+import { useSpecification } from "../../src";
 import { Item, ItemDeleted, Name, Root, SubItem, SubSubItem, model } from "../model";
 import { LineItem } from "./LineItem";
 
-const namesOfRoot = model.given(Root).match((root, facts) =>
-    facts.ofType(Name)
-        .join(name => name.root, root)
-        .notExists(name => facts.ofType(Name)
-            .join(next => next.prior, name)
-        )
-)
-
-const itemsInRoot = model.given(Root).match((root, facts) =>
-    facts.ofType(Item)
-        .join(item => item.root, root)
-        .notExists(item => facts.ofType(ItemDeleted)
-            .join(deleted => deleted.item, item)
-        )
+const detailsOfRoot = model.given(Root).select(root => ({
+    names: root.successors(Name, name => name.root)
+        .notExists(name => name.successors(Name, next => next.prior)),
+    items: root.successors(Item, item => item.root)
+        .notExists(item => item.successors(ItemDeleted, deleted => deleted.item))
         .select(item => ({
             hash: Jinaga.hash(item),
-            subItems: facts.ofType(SubItem)
-                .join(subitem => subitem.item, item)
+            subItems: item.successors(SubItem, subitem => subitem.item)
                 .select(subitem => ({
                     hash: Jinaga.hash(subitem),
                     createdAt: subitem.createdAt,
-                    subSubItems: facts.ofType(SubSubItem)
-                        .join(subsubitem => subsubitem.subItem, subitem)
+                    subSubItems: subitem.successors(SubSubItem, subsubitem => subsubitem.subItem)
                         .select(subsubitem => ({
                             hash: Jinaga.hash(subsubitem),
                             id: subsubitem.id
                         }))
                 }))
         }))
-)
+}));
 
 export type ApplicationProps = {
     j: Jinaga;
@@ -43,16 +32,13 @@ export type ApplicationProps = {
 
 export const Application = (props: ApplicationProps) => {
     const { j, greeting, root } = props;
-    const { data } = useSpecifications(j, {
-        names: namesOfRoot,
-        items: itemsInRoot
-    }, root);
+    const { data } = useSpecification(j, detailsOfRoot, root);
 
-    if (!data) {
+    if (!data || data.length !== 1) {
         return null;
     }
 
-    const { names, items } = data;
+    const { names, items } = data[0];
     const name = names.length > 0 ? names[names.length - 1].value : "";
     const nameWithConflicts = names.map(n => n.value).join(", ");
 
