@@ -30,7 +30,7 @@
     "@types/react-dom": "^19.0.4",
     "jest": "^29.5.0",
     "jest-environment-jsdom": "^29.5.0",
-    "jinaga": "^6.5.0",
+    "jinaga": "^6.7.0",
     "nodemon": "^3.1.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
