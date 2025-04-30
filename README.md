@@ -1,179 +1,120 @@
 # Jinaga React
 
+**Jinaga-React** makes it easy to build reactive, offline-first applications in React using the Jinaga framework. It connects your domain model to your UI automatically, so you don't have to write custom fetch logic or manage subscriptions yourself.
 
-
-Binding helpers for managing [React](https://reactjs.org) component state based on [Jinaga](https://jinaga.com) watches.
+## Installation
 
 ```bash
-npm install --save jinaga react react-dom jinaga-react
+npm install jinaga jinaga-react
 ```
 
-Full documentation can be found at [https://jinaga.com/documents/jinaga-react/](https://jinaga.com/documents/jinaga-react/).
+## Basic Usage
 
-# Composition
+Use the `useSpecification` hook to bind a Jinaga specification to your component. This hook keeps your UI in sync with the current facts, including offline updates and real-time changes.
 
-User interfaces in React are composed from components.
-The Jinaga helper library for React provides ways to connect components to Jinaga template functions to create dynamic user interfaces.
-It breaks the problem into three layers:
+```tsx
+import { useSpecification } from 'jinaga-react';
+import { model, Post, Site } from './model';
+import { j } from './jinaga-config';
 
-* Specifications
-* Mappings
-* Containers
+const postsInSite = model.given(Site).match(site =>
+  site.successors(Post, post => post.site)
+    .select(post => ({
+      hash: j.hash(post),
+      titles: post.successors(PostTitle, title => title.post)
+        .notExists(title => title.successors(PostTitle, next => next.prior))
+        .select(title => title.value)
+    }))
+);
 
-Mappings can further be used in collections to build structures of any depth.
+export function PostList({ site }: { site: Site }) {
+  const { data: posts, loading } = useSpecification(j, postsInSite, site);
 
-## Specifications
+  if (posts === null) {
+    return null; // Initial transient state: render nothing
+  }
 
-Start by specifying a set of properties to be injected into a React component.
+  if (loading) {
+    return <div>Loading posts...</div>;
+  }
 
-```javascript
-const messageSpec = specificationFor(Message, {
-    text: field(m => m.text),
-    sender: property(j.for(Message.sender).then(UserName.forUser), n => n.value, "<sender>")
-});
-```
+  if (posts.length === 0) {
+    return <div>No posts found.</div>;
+  }
 
-This specification defines two props.
-The `text` prop will be given the value of the text field of the `Message` fact.
-The `sender` prop will use the result of the template functions `Message.sender` and `UserName.forUser`.
-This sets up a query that will take the sender of the message, and then watch for their user name.
-
-By default, the property will have the value `"<sender>"`, which is just there so that something gets displayed.
-That value will be used only if the sender has no name.
-In other words, if the `UserName.forUser` template matches no facts.
-
-You can get the results of a mapping with the hook `useResult`.
-Pass the Jinaga object, the starting fact, and the specification.
-Like all hooks, this can only be used within a render function -- typically in a function component.
-
-```javascript
-const messageView = ({ message }) => {
-    const result = useResult(j, message, messageSpec);
-
-    if (result === null) {
-        return <p>Loading</p>;
-    }
-    else {
-        const { text, sender } = message;
-
-        return (
-            <>
-                <p className="message-text">{text}</p>
-                <p className="message-sender">{sender}</p>
-            </>
-        );
-    }
+  return <ul>
+    { data.map(post =>
+      <li key={post.hash}>{post.titles.join(', ')}</li>
+    ) }
+  </ul>;
 }
 ```
 
-The hook returns null while the results are loading asynchronously, or if the starting fact is null.
+**Behavior summary:**
+- `data === null`: Transient startup — show nothing to avoid flashes.
+- `loading === true`: A network round-trip is underway.
+- `data.length === 0`: No matching facts.
+- Otherwise: Render the facts.
 
-## Mappings
+## Full API
 
-Once you have a specification, you can map it to a React component.
-Do this by calling the `mapProps` function with the specification, and then the `to` function with the component.
-Function components or class components are accepted.
-If the component takes additional properties, you can use the generic argument on `to` to declare them (TypeScript only).
+### `useSpecification(jinaga, specification, parameters)`
 
-```typescript
-interface MessageProps {
-    onReply(): void;
+The `useSpecification` hook returns an object with these properties:
+
+| Property     | Type                    | Meaning                                                                   |
+| :----------- | :---------------------- | :------------------------------------------------------------------------ |
+| `data`       | `TProjection[] \| null` | The facts matching your specification. `null` during transient startup.   |
+| `loading`    | `boolean`               | `true` when a network round-trip is underway and data is missing locally. |
+| `error`      | `Error \| null`         | If an error occurs while loading, it appears here.                        |
+| `clearError` | `() => void`            | A function you can call to clear the current error manually.              |
+
+## Handling Edge Cases
+
+### 1. **Blank State on Startup**
+
+During the very first render, `data` will be `null`, even if `loading` is `false`.  
+This startup phase is extremely short. You should **render nothing** during this phase to avoid distracting flashes.
+
+```tsx
+if (data === null) {
+  return null;
 }
-
-const messageMapping = mapProps(messageSpec).to<MessageProps>(({ text, sender, onReply }) => (
-    <>
-        <p className="message-text">{text}</p>
-        <p className="message-sender">{sender}</p>
-        <button onClick={onReply}>Reply</button>
-    </>
-));
 ```
 
-Or if you prefer a class component rather than a function component, pass the constructor.
+### 2. **Loading Spinner**
 
-```javascript
-class MessagePresenter extends React.Component {
-    constructor(props) {
-        super(props);
-    }
+If `loading` is `true`, it means the app expects a network fetch.  
+You may want to show a spinner *only* if this network delay becomes noticeable.
 
-    render() {
-        return (
-            <>
-                <p className="message-text">{this.props.text}</p>
-                <p className="message-sender">{this.props.sender}</p>
-                <button onClick={this.props.onReply}>Reply</button>
-            </>
-        );
-    }
+```tsx
+if (loading) {
+  return <Spinner />;
 }
-
-const messageMapping = mapProps(messageSpec).to(MessagePresenter);
 ```
 
-## Containers
+**Note:** Cached data will still be shown immediately if available — the user doesn't have to wait.
 
-Now that you've mapped the specified properties into a component, you can wrap that component in a container.
-Define a container component with the `jiangaContainer` function.
-Pass in the Jinaga instance (typically called `j`) and the mapping.
+### 3. **Handling Errors**
 
-```javascript
-const MessageView = jinagaContainer(j, messageMapping);
-```
+If a network fetch is necessary and an error occurs, `error` will be set.
+You can use this to show an error message.
 
-You can now use this container component as a regular React component.
-It has a prop called `fact` that takes the starting point of the graph.
-It also takes any unbound props that were added in the call to `mapProps`.`to`.
+```tsx
+const { data, loading, error, clearError } = useSpecification(j, someSpec, {});
 
-```javascript
-const message = new Message("Twas Brillig", user, new Channel("General"), new Date());
-
-function onReply() {
-    // ...
+if (error) {
+  return (
+    <div>
+      Error: {error.message}
+      <button onClick={clearError}>Dismiss</button>
+    </div>
+  );
 }
-
-ReactDOM.render(
-    <MessageView fact={message} onReply={onReply} />,
-    document.getElementById("message-host"));
 ```
 
-## Collections
+## Migration Notes
 
-Of course, it doesn't make much sense to have a page that displays just one message.
-You want a list of messages in a channel.
-You can compose mappings into other specifications using the `collection` function.
-
-```javascript
-const channelSpec = specificationFor(Channel, {
-    identifier: field(c => c.identifier),
-    Messages: collection(j.for(Message.inChannel), messageMapping, descending(m => m.sentAt))
-});
-```
-
-I gave the `Messages` prop a capitalized name.
-Want to know why?
-Because that lets me use it as a component!
-Supply any unbound parameters.
-
-```javascript
-const channelMapping = channelSpec(( { identifier, Messages }) => (
-    <>
-        <h1>{identifier}</h1>
-        <Messages onReply={onReply} />
-    </>
-));
-```
-
-The collection component will render all of the results of the template function using the child mapping, and in the specified order.
-
-There are loads of ways to compose specifications and mappings.
-The field specification functions include:
-
-| Function | Purpose | Example |
-| -- | -- | -- |
-| field | Pluck one field from the fact. Also used to fetch the fact itself. | `text: field(m => m.text)` |
-| projection | Map a single child component. | `UserView: projection(userViewMapping)` |
-| collection | Map a collection of child components. | `Messages: collection(j.for(messagesInChannel), messageMapping)` |
-| property | Match a single value of a mutable property. | `name: property(j.for(nameOfUser), n => n.value, "<user>")` |
-| mutable | Match all candidate values of a mutable property. | `name: mutable(j.for(nameOfUser), userNames => userNames.map(n => n.value).join(", "))` |
-| array | Construct an array of child objects. | `messages: array(j.for(messagesInChannel), { text: field(m => m.text) })` |
+Earlier versions of Jinaga-React used Mappings and Containers.  
+Those have been **deprecated**.  
+The current best practice is to use `useSpecification` exclusively for binding data into components.
