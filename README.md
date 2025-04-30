@@ -10,17 +10,17 @@ npm install jinaga jinaga-react
 
 ## Getting Started
 
-Before you can use useSpecification, you need a Jinaga instance connected to a replicator.
+Before you can use useSpecification, you need a Jinaga client connected to a replicator.
 This allows your app to query facts locally and sync with a server.
 
 Here’s a simple setup:
 
-1. Create a Jinaga instance
+1. Create a Jinaga client
 
 ```javascript
-import { JinagaBrowser } from 'jinaga-browser';
+import { JinagaClient } from 'jinaga';
 
-export const j = new JinagaBrowser({
+export const j = JinagaClient.create({
   httpEndpoint: "https://your-replicator.example.com/"
 });
 ```
@@ -31,30 +31,34 @@ export const j = new JinagaBrowser({
 Example local replicator (development only):
 
 ```bash
-npx @jinaga/replicator
+docker pull jinaga/jinaga-replicator-no-security-policies
+docker run -d --name my-replicator -p8080:8080 jinaga/jinaga-replicator-no-security-policies
 ```
 
-This will start a replicator at http://localhost:8080/.
+This will start a replicator at http://localhost:8080/jinaga.
 
 2. Define your model
 
 Create a file like model.ts that defines your types and specifications.
 
 ```javascript
-import { predefine } from "jinaga";
+import { buildModel } from "jinaga";
 
 export class Post {
-  type = "Post" as const;
+  static Type = "Blog.Post" as const;
+  public type = Post.Type;
+
   constructor(
-    public messageId: string,
-    public content: string
-  ) {}
+    public createdAt: Date | string,
+    public site: Site
+  ) { }
 }
 
-export const postList = predefine(Post, j => j
-  .match()
-  .select()
-  .orderBy(p => p.messageId)
+export const model = buildModel(b => b
+  .type(Site)
+  .type(Post, m => m
+    .predecessor("site", Site)
+  )
 );
 ```
 
