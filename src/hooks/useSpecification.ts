@@ -1,4 +1,5 @@
 import { Jinaga, MakeObservable, SpecificationOf, computeObjectHash } from 'jinaga';
+import { hashSymbol } from 'jinaga/dist/fact/hydrate';
 import * as React from 'react';
 
 export type ProjectionOf<TSpecification> = TSpecification extends SpecificationOf<unknown, infer TProjection> ? TProjection : never;
@@ -100,6 +101,13 @@ function removeObservablesFromObject(projection: any): any {
           result[key] = removeObservablesFromObject(value);
         }
       }
+      // Preserve symbol properties (like hashSymbol) so facts can be identified after removing observables
+      if (typeof Symbol !== 'undefined') {
+        const symbols = Object.getOwnPropertySymbols(projection);
+        for (const sym of symbols) {
+          result[sym] = projection[sym];
+        }
+      }
       return result;
     }
   }
@@ -108,8 +116,52 @@ function removeObservablesFromObject(projection: any): any {
   return projection;
 }
 
+function getFactHash(element: any): string | null {
+  // Try to access hashSymbol directly if available
+  if (hashSymbol && element[hashSymbol]) {
+    return element[hashSymbol];
+  }
+  
+  // Fallback: search for the hash symbol using Object.getOwnPropertySymbols
+  if (typeof Symbol !== 'undefined') {
+    const symbols = Object.getOwnPropertySymbols(element);
+    for (const sym of symbols) {
+      if (sym.toString() === 'Symbol(hash)') {
+        return element[sym];
+      }
+    }
+  }
+  
+  return null;
+}
+
+function isFact(obj: any): boolean {
+  // Check if object is a fact by verifying:
+  // 1. It's an object (not null or primitive)
+  // 2. It has a type property (facts always have a type property)
+  // 3. It has the hash symbol (facts returned from FactProjection have hashSymbol set)
+  return typeof obj === 'object' && 
+         obj !== null && 
+         typeof obj.type === 'string' &&
+         getFactHash(obj) !== null;
+}
+
+/**
+ * Computes a unique key for an element in a projection.
+ * For facts (returned from FactProjection), uses the fact's hash directly.
+ * For other projection types (composite, field, hash), computes a hash after removing array properties.
+ * For primitive values, returns the string representation.
+ */
 function computeElementKey(element: any): string {
-  // The element is either an object or a primitive value.
+  // Check if element is a fact first - facts are uniquely identified by their hash
+  if (isFact(element)) {
+    const hash = getFactHash(element);
+    if (hash) {
+      return hash;
+    }
+  }
+  
+  // For non-fact objects (composite projections, etc.), use existing logic
   if (typeof element === 'object') {
     // If it is an object, remove all array properties.
     const immutable: any = {};

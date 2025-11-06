@@ -133,7 +133,7 @@ describe("useSpecification", () => {
     expect(result.current.error).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([description]));
 
-    const replacement = await j.fact(new ItemDescription(item, "replacement", [description]));
+    const replacement = await j.fact(new ItemDescription(item, "description", [description]));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
