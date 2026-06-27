@@ -1,1 +1,1 @@
-export { ProjectionOf, SpecificationResult, useSpecification } from "./hooks/useSpecification";
+export { ProjectionOf, SpecificationResult, useSpecification, useSubscription } from "./hooks/useSpecification";

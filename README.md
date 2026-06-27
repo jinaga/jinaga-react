@@ -69,6 +69,37 @@ The `useSpecification` hook returns an object with these properties:
 | `error`      | `Error \| null`         | If an error occurs while loading, it appears here.                        |
 | `clearError` | `() => void`            | A function you can call to clear the current error manually.              |
 
+### `useSubscription(jinaga, specification, parameters)`
+
+`useSubscription` has the **same signature and return shape** as `useSpecification`. The
+difference is in how it stays up to date:
+
+- `useSpecification` uses `jinaga.watch`. It loads matching facts once and then reacts to
+  changes in the **local** store. It does not hold a connection open.
+- `useSubscription` uses `jinaga.subscribe`. It opens a **persistent streaming connection**
+  to the replicator so that matching facts are **pushed in real time** as other clients
+  create them.
+
+Use `useSubscription` when you need live updates from the server (for example, a feed that
+multiple users edit concurrently). Use `useSpecification` when local reactivity is enough.
+
+#### ⚠️ Serve the replicator over HTTP/2
+
+Each subscription holds one streaming HTTP connection open **per distinct feed** produced by
+the specification, and a single specification can fan out to several feeds. Jinaga
+reference-counts feeds, so identical subscriptions share a connection — the cost is the
+number of *distinct* feeds across all live subscriptions, not the number of hooks.
+
+Browsers cap concurrent connections to a single origin at **~6 over HTTP/1.1**. Because the
+held-open feed streams also compete with the `load` requests that fetch the underlying
+facts, exhausting that pool can stall — or in the worst case deadlock — your app.
+
+**Serve the Jinaga replicator over HTTP/2 (or HTTP/3) in production.** HTTP/2 multiplexes all
+streams over a single connection (~100 concurrent streams), which removes the per-origin
+connection limit as a practical concern. Any modern reverse proxy, CDN, or managed host
+negotiates HTTP/2 by default. If you can only serve HTTP/1.1, prefer `useSpecification` and
+keep the number of concurrent `useSubscription` hooks small.
+
 ## Handling Edge Cases
 
 ### 1. **Blank State on Startup**
