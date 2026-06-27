@@ -6,6 +6,10 @@ export type ProjectionOf<TSpecification> = TSpecification extends SpecificationO
 type CacheState = 'uninitialized' | 'loading' | 'ready';
 type NullableElements<TGiven extends unknown[]> = TGiven extends [infer First, ...infer Rest] ? [First | null, ...NullableElements<Rest>] : TGiven;
 
+// The Observer handle returned by both j.watch and j.subscribe. Derived from the
+// public Jinaga API rather than a deep import so it stays valid as jinaga evolves.
+type ObserverHandle = ReturnType<Jinaga['watch']>;
+
 export interface SpecificationResult<TProjection> {
   loading: boolean;
   data: TProjection[] | null;
@@ -25,45 +29,13 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
       return;
 
     const nonNullGiven = given as TGiven;
-    const watch = j.watch(specification, ...nonNullGiven, (projection: MakeObservable<TProjection>) => {
-      const element = removeObservables(projection);
-      const elementKey = computeElementKey(element);
-      setProjections(list => [...list, element]);
-
-      const setChildProjections = <TKey extends keyof TProjection>(key: TKey, updater: (childList: TProjection[TKey]) => TProjection[TKey]) => {
-        setProjections((list) => list.map((p) => {
-          if (computeElementKey(p) === elementKey) {
-            return {
-              ...p,
-              [key]: updater(p[key])
-            };
-          } else {
-            return p;
-          }
-        }));
-      };
-      watchObservables(projection, setChildProjections);
-
-      return (): void => {
-        setProjections(list => list.filter(p => computeElementKey(p) !== elementKey));
-      };
-    });
-    watch.cached()
-      .then(cacheReady => {
-        if (cacheReady) {
-          setState('ready');
-        } else {
-          setState('loading');
-          watch.loaded()
-            .catch(e => setError(e))
-            .finally(() => setState('ready'));
-        }
-      });
+    const observer = j.watch(specification, ...nonNullGiven, createOnAdded<TProjection>(setProjections));
+    manageState(observer, setState, setError);
     return () => {
       setState('uninitialized');
       setProjections([]);
       setError(null);
-      watch.stop();
+      observer.stop();
     };
   }, [...factHashes(given), specification, setProjections, setState, setError]);
 
@@ -71,6 +43,88 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
   const loading = state === 'loading';
   const data = (state === 'ready' && !error) ? projections : null;
   return { loading, data, error, clearError };
+}
+
+/**
+ * Like {@link useSpecification}, but uses `j.subscribe` instead of `j.watch` so that
+ * matching facts are pushed from the replicator in real time.
+ *
+ * Connection note: each subscription holds one persistent streaming HTTP connection
+ * open per distinct feed produced by the specification (a single specification can fan
+ * out to several feeds). Identical feeds are shared and reference-counted by jinaga, so
+ * the cost is the number of distinct feeds across all live subscriptions, not the number
+ * of hooks. Because browsers cap concurrent connections per origin at ~6 over HTTP/1.1 —
+ * and those held-open streams can starve the `load` requests that fetch the underlying
+ * facts — the replicator SHOULD be served over HTTP/2 (or HTTP/3) in production, where
+ * streams are multiplexed over a single connection (~100 concurrent streams). See the
+ * README for details.
+ */
+export function useSubscription<TGiven extends unknown[], TProjection>(j: Jinaga, specification: SpecificationOf<TGiven, TProjection>, ...given: NullableElements<TGiven>): SpecificationResult<TProjection> {
+
+  const [projections, setProjections] = React.useState<TProjection[]>([]);
+  const [state, setState] = React.useState<CacheState>('uninitialized');
+  const [error, setError] = React.useState<Error | null>(null);
+
+  React.useEffect(() => {
+    // Wait until all givens are specified.
+    if (given.some(g => g === null))
+      return;
+
+    const nonNullGiven = given as TGiven;
+    const observer = j.subscribe(specification, ...nonNullGiven, createOnAdded<TProjection>(setProjections));
+    manageState(observer, setState, setError);
+    return () => {
+      setState('uninitialized');
+      setProjections([]);
+      setError(null);
+      observer.stop();
+    };
+  }, [...factHashes(given), specification, setProjections, setState, setError]);
+
+  const clearError = React.useCallback(() => setError(null), [setError]);
+  const loading = state === 'loading';
+  const data = (state === 'ready' && !error) ? projections : null;
+  return { loading, data, error, clearError };
+}
+
+function createOnAdded<TProjection>(setProjections: React.Dispatch<React.SetStateAction<TProjection[]>>) {
+  return (projection: MakeObservable<TProjection>) => {
+    const element = removeObservables(projection);
+    const elementKey = computeElementKey(element);
+    setProjections(list => [...list, element]);
+
+    const setChildProjections = <TKey extends keyof TProjection>(key: TKey, updater: (childList: TProjection[TKey]) => TProjection[TKey]) => {
+      setProjections((list) => list.map((p) => {
+        if (computeElementKey(p) === elementKey) {
+          return {
+            ...p,
+            [key]: updater(p[key])
+          };
+        } else {
+          return p;
+        }
+      }));
+    };
+    watchObservables(projection, setChildProjections);
+
+    return (): void => {
+      setProjections(list => list.filter(p => computeElementKey(p) !== elementKey));
+    };
+  };
+}
+
+function manageState(observer: ObserverHandle, setState: React.Dispatch<React.SetStateAction<CacheState>>, setError: React.Dispatch<React.SetStateAction<Error | null>>) {
+  observer.cached()
+    .then(cacheReady => {
+      if (cacheReady) {
+        setState('ready');
+      } else {
+        setState('loading');
+        observer.loaded()
+          .catch(e => setError(e))
+          .finally(() => setState('ready'));
+      }
+    });
 }
 
 function factHashes(facts: any[]): string[] {
