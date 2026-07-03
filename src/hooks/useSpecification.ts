@@ -24,6 +24,8 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     if (given.some(g => g === null))
       return;
 
+    let active = true;
+
     const nonNullGiven = given as TGiven;
     const watch = j.watch(specification, ...nonNullGiven, (projection: MakeObservable<TProjection>) => {
       const element = removeObservables(projection);
@@ -50,16 +52,18 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     });
     watch.cached()
       .then(cacheReady => {
+        if (!active) return;
         if (cacheReady) {
           setState('ready');
         } else {
           setState('loading');
           watch.loaded()
-            .catch(e => setError(e))
-            .finally(() => setState('ready'));
+            .catch(e => { if (active) setError(e); })
+            .finally(() => { if (active) setState('ready'); });
         }
       });
     return () => {
+      active = false;
       setState('uninitialized');
       setProjections([]);
       setError(null);
