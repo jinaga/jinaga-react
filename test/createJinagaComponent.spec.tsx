@@ -42,13 +42,34 @@ describe("Specification For", () => {
         expect(name).toBe("Modified");
     });
 
-    it("should take second value in a conflict", async () => {
+    it("should converge in a conflict", async () => {
         const root = await j.fact(new Root("home"));
         await j.fact(new Name(root, "Home", []));
         await j.fact(new Name(root, "Modified", []));
 
         const name = await whenGetName();
-        expect(name).toBe("Modified");
+        expect(name).toBe("Home");
+    });
+
+    it("should produce the same value regardless of arrival order in a conflict", async () => {
+        const j1 = JinagaBrowser.create({});
+        const root1 = await j1.fact(new Root("home"));
+        await j1.fact(new Name(root1, "Home", []));
+        await j1.fact(new Name(root1, "Modified", []));
+
+        const { findByTestId: find1 } = render(<Application j={j1} root={root1} greeting="Hello" />);
+        const name1 = (await find1("name") as HTMLElement).innerHTML;
+        cleanup();
+
+        const j2 = JinagaBrowser.create({});
+        const root2 = await j2.fact(new Root("home"));
+        await j2.fact(new Name(root2, "Modified", []));
+        await j2.fact(new Name(root2, "Home", []));
+
+        const { findByTestId: find2 } = render(<Application j={j2} root={root2} greeting="Hello" />);
+        const name2 = (await find2("name") as HTMLElement).innerHTML;
+
+        expect(name1).toBe(name2);
     });
     
     it("should resolve mutable", async () => {
@@ -73,7 +94,7 @@ describe("Specification For", () => {
         await j.fact(new Name(root, "Modified", []));
 
         const nameWithConflicts = await whenGetNameWithConflicts();
-        expect(nameWithConflicts).toBe("Home, Modified");
+        expect(nameWithConflicts).toBe("Modified, Home");
     });
 
     it("should add to a collection", async () => {
