@@ -28,7 +28,7 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     const watch = j.watch(specification, ...nonNullGiven, (projection: MakeObservable<TProjection>) => {
       const element = removeObservables(projection);
       const elementKey = computeElementKey(element);
-      setProjections(list => insertSorted(list, element, computeElementKey));
+      setProjections(list => insertSorted(list, element, computeElementKey, elementKey));
 
       const setChildProjections = <TKey extends keyof TProjection>(key: TKey, updater: (childList: TProjection[TKey]) => TProjection[TKey]) => {
         setProjections((list) => list.map((p) => {
@@ -77,8 +77,7 @@ function factHashes(facts: any[]): string[] {
   return facts.map(f => f ? Jinaga.hash(f) : '');
 }
 
-function insertSorted<T>(list: T[], element: T, getKey: (item: T) => string): T[] {
-  const key = getKey(element);
+function insertSorted<T>(list: T[], element: T, getKey: (item: T) => string, key: string = getKey(element)): T[] {
   const index = list.findIndex(item => getKey(item) > key);
   if (index === -1) {
     return [...list, element];
@@ -204,7 +203,7 @@ function watchObservables<TProjection>(projection: MakeObservable<TProjection>, 
                 return list;
               }
               else {
-                return insertSorted(list, elementWithoutObservables, computeElementKey);
+                return insertSorted(list, elementWithoutObservables, computeElementKey, elementKey);
               }
             });
 

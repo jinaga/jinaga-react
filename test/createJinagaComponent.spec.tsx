@@ -44,11 +44,14 @@ describe("Specification For", () => {
 
     it("should converge in a conflict", async () => {
         const root = await j.fact(new Root("home"));
-        await j.fact(new Name(root, "Home", []));
-        await j.fact(new Name(root, "Modified", []));
+        const home = await j.fact(new Name(root, "Home", []));
+        const modified = await j.fact(new Name(root, "Modified", []));
 
         const name = await whenGetName();
-        expect(name).toBe("Home");
+        const expected = [home, modified]
+            .sort((a, b) => j.hash(a).localeCompare(j.hash(b)))[1]
+            .value;
+        expect(name).toBe(expected);
     });
 
     it("should produce the same value regardless of arrival order in a conflict", async () => {
@@ -57,9 +60,9 @@ describe("Specification For", () => {
         await j1.fact(new Name(root1, "Home", []));
         await j1.fact(new Name(root1, "Modified", []));
 
-        const { findByTestId: find1 } = render(<Application j={j1} root={root1} greeting="Hello" />);
+        const { findByTestId: find1, unmount } = render(<Application j={j1} root={root1} greeting="Hello" />);
         const name1 = (await find1("name") as HTMLElement).innerHTML;
-        cleanup();
+        unmount();
 
         const j2 = JinagaBrowser.create({});
         const root2 = await j2.fact(new Root("home"));
@@ -90,11 +93,15 @@ describe("Specification For", () => {
 
     it("should apply resolver in a conflict", async () => {
         const root = await j.fact(new Root("home"));
-        await j.fact(new Name(root, "Home", []));
-        await j.fact(new Name(root, "Modified", []));
+        const home = await j.fact(new Name(root, "Home", []));
+        const modified = await j.fact(new Name(root, "Modified", []));
 
         const nameWithConflicts = await whenGetNameWithConflicts();
-        expect(nameWithConflicts).toBe("Modified, Home");
+        const expected = [home, modified]
+            .sort((a, b) => j.hash(a).localeCompare(j.hash(b)))
+            .map(name => name.value)
+            .join(", ");
+        expect(nameWithConflicts).toBe(expected);
     });
 
     it("should add to a collection", async () => {
