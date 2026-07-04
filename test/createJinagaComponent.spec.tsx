@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { Jinaga, JinagaBrowser } from "jinaga";
 import * as React from "react";
 import { Application } from "./components/Application";
@@ -154,9 +154,12 @@ describe("Specification For", () => {
         const identifier = await findByTestId("identifier") as HTMLElement;
         expect(identifier.innerHTML).toBe("home");
 
-        rerender(<Application j={j} root={new Root("away")} greeting="Goodby" />);
-        const secondIdentifier = await findByTestId("identifier") as HTMLElement;
-        expect(secondIdentifier.innerHTML).toBe("away");
+        const away = await j.fact(new Root("away"));
+        rerender(<Application j={j} root={away} greeting="Goodby" />);
+        await waitFor(async () => {
+            const secondIdentifier = await findByTestId("identifier") as HTMLElement;
+            expect(secondIdentifier.innerHTML).toBe("away");
+        });
     });
 
     it("should get new props when they change", async () => {
