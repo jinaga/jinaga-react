@@ -154,7 +154,8 @@ describe("Specification For", () => {
         const identifier = await findByTestId("identifier") as HTMLElement;
         expect(identifier.innerHTML).toBe("home");
 
-        rerender(<Application j={j} root={new Root("away")} greeting="Goodby" />);
+        const away = await j.fact(new Root("away"));
+        rerender(<Application j={j} root={away} greeting="Goodby" />);
         const secondIdentifier = await findByTestId("identifier") as HTMLElement;
         expect(secondIdentifier.innerHTML).toBe("away");
     });
