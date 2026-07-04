@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { JinagaTest } from "jinaga";
 import { useSpecification } from "../../src";
 import { Item, ItemDeleted, ItemDescription, Root, model } from "../model";
@@ -159,6 +159,51 @@ describe("useSpecification", () => {
     expect(roundTrip(result.current.data?.length)).toBe(2);
     expect(roundTrip(result.current.data)).toContainEqual(roundTrip(candidate1));
     expect(roundTrip(result.current.data)).toContainEqual(roundTrip(candidate2));
+  });
+
+  it("should show both items when two are added simultaneously", async () => {
+    const j = JinagaTest.create({});
+    const root = await j.fact(new Root("root-identifier"));
+
+    const { result } = renderHook(() => useSpecification(j, itemsInRoot, root));
+    await waitFor(() => {
+      expect(result.current.data).not.toBeNull();
+    });
+
+    await act(async () => {
+      await Promise.all([
+        j.fact(new Item(root, new Date(1000))),
+        j.fact(new Item(root, new Date(2000))),
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.data?.length).toBe(2);
+    });
+  });
+
+  it("should not use stale watch state when given fact changes", async () => {
+    const j = JinagaTest.create({});
+    const root1 = await j.fact(new Root("root-1"));
+    const root2 = await j.fact(new Root("root-2"));
+    const itemInRoot2 = await j.fact(new Item(root2, new Date()));
+
+    let currentRoot = root1;
+    const { result, rerender } = renderHook(() => useSpecification(j, itemsInRoot, currentRoot));
+
+    await waitFor(() => {
+      expect(result.current.data).not.toBeNull();
+    });
+    expect(result.current.data).toEqual([]);
+
+    // Switch to root2, which already has an item
+    currentRoot = root2;
+    rerender();
+
+    await waitFor(() => {
+      expect(result.current.data?.length).toBe(1);
+    });
+    expect(roundTrip(result.current.data)).toContainEqual(roundTrip(itemInRoot2));
   });
 });
 
