@@ -1,4 +1,4 @@
-import { Jinaga, MakeObservable, SpecificationOf, computeObjectHash } from 'jinaga';
+import { DistributionDeniedError, DistributionDiagnostic, Jinaga, MakeObservable, SpecificationOf, computeObjectHash } from 'jinaga';
 import { hashSymbol } from 'jinaga/dist/fact/hydrate';
 import * as React from 'react';
 
@@ -10,6 +10,24 @@ export interface SpecificationResult<TProjection> {
   loading: boolean;
   data: TProjection[] | null;
   error: Error | null;
+  /**
+   * True when the specification is denied by distribution for a reason that
+   * self-heals when an authorizing fact arrives (issue #179): a `reactive`
+   * decision (the subscription race), or a `principal-excluded` denial (the
+   * user is authenticated but not yet in the authorized set — access is granted
+   * by a fact that can still replicate in). Render this as a "waiting for
+   * access" state, distinct from `loading`. It clears when the first result
+   * arrives. It is never true at the same time as `error`.
+   */
+  distributionPending: boolean;
+  /**
+   * The single most-significant distribution decision behind `distributionPending`
+   * or an `error` of type `DistributionDeniedError`; `null` when the feed is
+   * authorized. An error-class decision outranks a pending one. Read
+   * `distributionDiagnostic.code` to branch (e.g. trigger login on
+   * `not-authenticated`).
+   */
+  distributionDiagnostic: DistributionDiagnostic | null;
   clearError: () => void;
 }
 
@@ -18,6 +36,7 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
   const [projections, setProjections] = React.useState<TProjection[]>([]);
   const [state, setState] = React.useState<CacheState>('uninitialized');
   const [error, setError] = React.useState<Error | null>(null);
+  const [distributionDiagnostic, setDistributionDiagnostic] = React.useState<DistributionDiagnostic | null>(null);
 
   React.useEffect(() => {
     // Wait until all givens are specified.
@@ -26,8 +45,38 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
 
     let active = true;
 
+    // Reduce the per-feed distribution decisions the observer captures to a
+    // single, intention-revealing signal (issue #179). A non-self-healing
+    // denial sets `error`; a self-healing one sets `distributionPending`.
+    // Error outranks pending so a real misconfiguration or a required login is
+    // never masked by a pending sibling feed.
+    const captured: DistributionDiagnostic[] = [];
+    let firstResultArrived = false;
+
+    const recomputeDistribution = () => {
+      if (!active) return;
+      const errorDiagnostic = captured.find(isDistributionError);
+      if (errorDiagnostic) {
+        setError(new DistributionDeniedError([errorDiagnostic]));
+        setDistributionDiagnostic(errorDiagnostic);
+        return;
+      }
+      // A watch has no clearing event (only subscribe does), so a pending feed
+      // clears the practical way: once the first result arrives — the
+      // authorizing fact reached the local store (e.g. via a sibling subscribe)
+      // and the inverse listeners delivered a row.
+      const pendingDiagnostic = firstResultArrived
+        ? undefined
+        : captured.find(isDistributionPending);
+      setDistributionDiagnostic(pendingDiagnostic ?? null);
+    };
+
     const nonNullGiven = given as TGiven;
     const watch = j.watch(specification, ...nonNullGiven, (projection: MakeObservable<TProjection>) => {
+      if (!firstResultArrived) {
+        firstResultArrived = true;
+        recomputeDistribution();
+      }
       const element = removeObservables(projection);
       const elementKey = computeElementKey(element);
       setProjections(list => insertSorted(list, element, computeElementKey, elementKey));
@@ -50,6 +99,13 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
         setProjections(list => list.filter(p => computeElementKey(p) !== elementKey));
       };
     });
+    // Register before the fetch settles so no decision is missed; any
+    // diagnostics already captured are replayed to this handler on registration.
+    watch.onDiagnostic(diagnostic => {
+      captured.push(diagnostic);
+      recomputeDistribution();
+    });
+
     watch.cached()
       .then(cacheReady => {
         if (!active) return;
@@ -67,14 +123,37 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
       setState('uninitialized');
       setProjections([]);
       setError(null);
+      setDistributionDiagnostic(null);
       watch.stop();
     };
-  }, [...factHashes(given), specification, setProjections, setState, setError]);
+  }, [...factHashes(given), specification, setProjections, setState, setError, setDistributionDiagnostic]);
 
   const clearError = React.useCallback(() => setError(null), [setError]);
   const loading = state === 'loading';
   const data = (state === 'ready' && !error) ? projections : null;
-  return { loading, data, error, clearError };
+  const distributionPending = distributionDiagnostic !== null && isDistributionPending(distributionDiagnostic);
+  return { loading, data, error, distributionPending, distributionDiagnostic, clearError };
+}
+
+// A distribution decision self-heals — render it as `distributionPending`, not
+// an error — when it is `reactive` (the subscription race), or a
+// `principal-excluded` denial: the user is authenticated but not yet in the
+// authorized set, and access is granted by a fact that can still replicate in.
+function isDistributionPending(diagnostic: DistributionDiagnostic): boolean {
+  if (diagnostic.cleared) return false;
+  if (diagnostic.reactive) return true;
+  return diagnostic.code === 'principal-excluded';
+}
+
+// A distribution decision needs intervention — render it as `error` — when it
+// is a structural denial (a missing or narrowed-past rule) that never
+// self-heals, or `not-authenticated`, which is not healed by a fact arriving
+// but by acquiring new tokens or routing the user through login.
+function isDistributionError(diagnostic: DistributionDiagnostic): boolean {
+  if (diagnostic.cleared || diagnostic.reactive) return false;
+  return diagnostic.code === 'no-matching-rule'
+    || diagnostic.code === 'spec-more-restrictive-than-rule'
+    || diagnostic.code === 'not-authenticated';
 }
 
 function factHashes(facts: any[]): string[] {

@@ -53,6 +53,8 @@ export function PostList({ site }: { site: Site }) {
 **Behavior summary:**
 - `data === null`: Transient startup — show nothing to avoid flashes.
 - `loading === true`: A network round-trip is underway.
+- `distributionPending === true`: A distribution rule hasn't authorized you yet, but it may self-heal when an authorizing fact arrives — show a "waiting for access" state, not an error.
+- `error !== null`: Something needs attention (including a distribution denial that won't self-heal, such as a missing rule or `not-authenticated`).
 - `data.length === 0`: No matching facts.
 - Otherwise: Render the facts.
 
@@ -62,12 +64,19 @@ export function PostList({ site }: { site: Site }) {
 
 The `useSpecification` hook returns an object with these properties:
 
-| Property     | Type                    | Meaning                                                                   |
-| :----------- | :---------------------- | :------------------------------------------------------------------------ |
-| `data`       | `TProjection[] \| null` | The facts matching your specification. `null` during transient startup.   |
-| `loading`    | `boolean`               | `true` when a network round-trip is underway and data is missing locally. |
-| `error`      | `Error \| null`         | If an error occurs while loading, it appears here.                        |
-| `clearError` | `() => void`            | A function you can call to clear the current error manually.              |
+| Property                 | Type                             | Meaning                                                                   |
+| :----------------------- | :------------------------------- | :------------------------------------------------------------------------ |
+| `data`                   | `TProjection[] \| null`          | The facts matching your specification. `null` during transient startup.   |
+| `loading`                | `boolean`                        | `true` when a network round-trip is underway and data is missing locally. |
+| `error`                  | `Error \| null`                  | If an error occurs while loading, it appears here. A non-self-healing distribution denial surfaces as a `DistributionDeniedError`. |
+| `distributionPending`    | `boolean`                        | `true` when distribution hasn't authorized you yet but the result will self-heal once an authorizing fact arrives (a `reactive` decision, or a `principal-excluded` denial). Distinct from `loading`; never `true` at the same time as `error`. |
+| `distributionDiagnostic` | `DistributionDiagnostic \| null` | The decision behind `distributionPending`/`error`; `null` when authorized. Read `.code` to branch (e.g. trigger login on `not-authenticated`). |
+| `clearError`             | `() => void`                     | A function you can call to clear the current error manually.              |
+
+**Distribution states.** When a specification is covered by a `share ... with ...` distribution rule, the replicator reports whether you're authorized. `useSpecification` reduces that to one signal per branch you render:
+
+- **`reactive`** or **`principal-excluded`** → `distributionPending`. You're not authorized *yet*, but access is granted by a fact that can still replicate in (often via a `j.subscribe` you run alongside the watch). Show a "waiting for access" state; it clears when the first result arrives.
+- **`no-matching-rule`**, **`spec-more-restrictive-than-rule`**, or **`not-authenticated`** → `error` (a `DistributionDeniedError`). These don't self-heal on their own: the first two are authoring mistakes, and `not-authenticated` needs new tokens or a login. Branch on `distributionDiagnostic.code` to react (e.g. route to login).
 
 ## Handling Edge Cases
 
