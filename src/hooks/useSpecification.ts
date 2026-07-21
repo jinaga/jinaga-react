@@ -131,7 +131,9 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
   const clearError = React.useCallback(() => setError(null), [setError]);
   const loading = state === 'loading';
   const data = (state === 'ready' && !error) ? projections : null;
-  const distributionPending = distributionDiagnostic !== null && isDistributionPending(distributionDiagnostic);
+  // Error outranks pending, including a non-distribution error surfaced by
+  // watch.loaded() — so `distributionPending` and `error` are never both set.
+  const distributionPending = !error && distributionDiagnostic !== null && isDistributionPending(distributionDiagnostic);
   return { loading, data, error, distributionPending, distributionDiagnostic, clearError };
 }
 

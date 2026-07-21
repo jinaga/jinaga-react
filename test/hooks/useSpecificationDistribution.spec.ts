@@ -13,7 +13,7 @@ import {
   PassThroughFork,
   Specification,
 } from "jinaga";
-import { Network } from "jinaga/dist/managers/NetworkManager";
+import type { Network } from "jinaga";
 import { useSpecification } from "../../src";
 import { Item, Root, model } from "../model";
 
