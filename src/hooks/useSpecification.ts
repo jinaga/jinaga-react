@@ -27,6 +27,13 @@ interface State<TProjection> {
   // True while a fetch is underway with nothing to show.
   fetching: boolean;
   failure: SpecificationFailure | null;
+  // Counts the retries the user asked for. A change restarts the watch.
+  attempt: number;
+  // True from a retry until that attempt completes.
+  retrying: boolean;
+  // While a retry restarts the watch, the rows on screen stay there and the
+  // new watch fills this list instead. It replaces them once it has an answer.
+  buffer: TProjection[] | null;
 }
 
 const empty: SpecificationResult<never> = { data: null, loading: false, failure: null };
@@ -35,6 +42,8 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
 
   const key = factHashes(given).join(',');
   const [state, setState] = React.useState<State<TProjection> | null>(null);
+  const owned = state !== null && state.key === key && state.specification === specification;
+  const attempt = owned ? state.attempt : 0;
 
   React.useEffect(() => {
     // Wait until all givens are specified.
@@ -44,14 +53,21 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     }
 
     let active = true;
-    setState({ key, specification, rows: [], settled: false, fetching: false, failure: null });
+    const owns = (s: State<TProjection> | null): s is State<TProjection> =>
+      s !== null && s.key === key && s.specification === specification;
+    setState(s => owns(s) && s.retrying
+      ? { ...s, fetching: false, rows: s.settled ? s.rows : [], buffer: s.settled ? [] : null }
+      : { key, specification, rows: [], settled: false, fetching: false, failure: null, attempt, retrying: false, buffer: null });
+
+    const retry = () => setState(s => owns(s) ? { ...s, attempt: s.attempt + 1, retrying: true } : s);
 
     const update = (change: (s: State<TProjection>) => Partial<State<TProjection>>) => {
       if (!active) return;
       setState(s => s === null ? s : { ...s, ...change(s) });
     };
     const setProjections = (updater: (list: TProjection[]) => TProjection[]) =>
-      update(s => ({ rows: updater(s.rows) }));
+      update(s => s.buffer ? { buffer: updater(s.buffer) } : { rows: updater(s.rows) });
+    const settled = (s: State<TProjection>) => ({ settled: true, rows: s.buffer ?? s.rows, buffer: null });
 
     // A structural distribution denial can't be fixed by trying again. Other
     // distribution decisions mean "no data yet", which is the empty state.
@@ -94,7 +110,7 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     watch.cached()
       .then(cacheReady => {
         if (cacheReady) {
-          update(() => ({ settled: true }));
+          update(settled);
         } else {
           update(() => ({ fetching: true }));
         }
@@ -102,24 +118,24 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     watch.loaded()
       .then(() => {
         update(s => denial === null
-          ? { settled: true, fetching: false, failure: null }
-          : { fetching: false });
+          ? { ...settled(s), fetching: false, retrying: false, failure: null }
+          : { fetching: false, retrying: false });
       }, (error: Error) => {
-        update(() => ({ fetching: false, failure: { error, retry: null } }));
+        update(() => ({ fetching: false, retrying: false, failure: { error, retry } }));
       });
 
     return () => {
       active = false;
       watch.stop();
     };
-  }, [key, specification]);
+  }, [key, specification, attempt]);
 
   if (state === null || state.key !== key || state.specification !== specification) {
     return empty;
   }
   return {
     data: state.settled ? state.rows : null,
-    loading: !state.settled && state.fetching,
+    loading: state.retrying || (!state.settled && state.fetching),
     failure: state.failure
   };
 }
