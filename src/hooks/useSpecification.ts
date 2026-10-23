@@ -3,85 +3,62 @@ import { hashSymbol } from 'jinaga/dist/fact/hydrate';
 import * as React from 'react';
 
 export type ProjectionOf<TSpecification> = TSpecification extends SpecificationOf<unknown, infer TProjection> ? TProjection : never;
-type CacheState = 'uninitialized' | 'loading' | 'ready';
 type NullableElements<TGiven extends unknown[]> = TGiven extends [infer First, ...infer Rest] ? [First | null, ...NullableElements<Rest>] : TGiven;
 
-export interface SpecificationResult<TProjection> {
-  loading: boolean;
-  data: TProjection[] | null;
-  error: Error | null;
-  /**
-   * True when the specification is denied by distribution for a reason that
-   * self-heals when an authorizing fact arrives (issue #179): a `reactive`
-   * decision (the subscription race), or a `principal-excluded` denial (the
-   * user is authenticated but not yet in the authorized set — access is granted
-   * by a fact that can still replicate in). Render this as a "waiting for
-   * access" state, distinct from `loading`. It clears when the first result
-   * arrives. It is never true at the same time as `error`.
-   */
-  distributionPending: boolean;
-  /**
-   * The single most-significant distribution decision behind `distributionPending`
-   * or an `error` of type `DistributionDeniedError`; `null` when the feed is
-   * authorized. An error-class decision outranks a pending one. Read
-   * `distributionDiagnostic.code` to branch (e.g. trigger login on
-   * `not-authenticated`).
-   */
-  distributionDiagnostic: DistributionDiagnostic | null;
-  clearError: () => void;
+export interface SpecificationFailure {
+  error: Error;
+  retry: (() => void) | null;
 }
+
+export interface SpecificationResult<TProjection> {
+  data: TProjection[] | null;
+  loading: boolean;
+  failure: SpecificationFailure | null;
+}
+
+interface State<TProjection> {
+  // The given and specification this state belongs to.
+  key: string;
+  specification: unknown;
+  rows: TProjection[];
+  // True once there is an answer to show: from the local cache, or from a
+  // completed fetch.
+  settled: boolean;
+  // True while a fetch is underway with nothing to show.
+  fetching: boolean;
+  failure: SpecificationFailure | null;
+}
+
+const empty: SpecificationResult<never> = { data: null, loading: false, failure: null };
 
 export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinaga, specification: SpecificationOf<TGiven, TProjection>, ...given: NullableElements<TGiven>): SpecificationResult<TProjection> {
 
-  const [projections, setProjections] = React.useState<TProjection[]>([]);
-  const [state, setState] = React.useState<CacheState>('uninitialized');
-  const [error, setError] = React.useState<Error | null>(null);
-  const [distributionDiagnostic, setDistributionDiagnostic] = React.useState<DistributionDiagnostic | null>(null);
-  // The given and specification the state above belongs to. The effect resets
-  // state only after commit, so a render with a new given must not read it.
-  const [owner, setOwner] = React.useState<{ key: string, specification: unknown } | null>(null);
   const key = factHashes(given).join(',');
+  const [state, setState] = React.useState<State<TProjection> | null>(null);
 
   React.useEffect(() => {
     // Wait until all givens are specified.
-    if (given.some(g => g === null))
+    if (given.some(g => g === null)) {
+      setState(null);
       return;
+    }
 
     let active = true;
-    setOwner({ key, specification });
+    setState({ key, specification, rows: [], settled: false, fetching: false, failure: null });
 
-    // Reduce the per-feed distribution decisions the observer captures to a
-    // single, intention-revealing signal (issue #179). A non-self-healing
-    // denial sets `error`; a self-healing one sets `distributionPending`.
-    // Error outranks pending so a real misconfiguration or a required login is
-    // never masked by a pending sibling feed.
-    const captured: DistributionDiagnostic[] = [];
-    let firstResultArrived = false;
-
-    const recomputeDistribution = () => {
+    const update = (change: (s: State<TProjection>) => Partial<State<TProjection>>) => {
       if (!active) return;
-      const errorDiagnostic = captured.find(isDistributionError);
-      if (errorDiagnostic) {
-        setError(new DistributionDeniedError([errorDiagnostic]));
-        setDistributionDiagnostic(errorDiagnostic);
-        return;
-      }
-      // A watch has no clearing event (only subscribe does), so a pending feed
-      // clears the practical way: once the first result arrives — the
-      // authorizing fact reached the local store (e.g. via a sibling subscribe)
-      // and the inverse listeners delivered a row.
-      const pendingDiagnostic = firstResultArrived
-        ? undefined
-        : captured.find(isDistributionPending);
-      setDistributionDiagnostic(pendingDiagnostic ?? null);
+      setState(s => s === null ? s : { ...s, ...change(s) });
     };
+    const setProjections = (updater: (list: TProjection[]) => TProjection[]) =>
+      update(s => ({ rows: updater(s.rows) }));
+
+    // A structural distribution denial can't be fixed by trying again. Other
+    // distribution decisions mean "no data yet", which is the empty state.
+    let denial: Error | null = null;
 
     const nonNullGiven = given as TGiven;
     const watch = j.watch(specification, ...nonNullGiven, (projection: MakeObservable<TProjection>) => {
-      if (!firstResultArrived) {
-        firstResultArrived = true;
-        recomputeDistribution();
-      }
       const element = removeObservables(projection);
       const elementKey = computeElementKey(element);
       setProjections(list => insertSorted(list, element, computeElementKey, elementKey));
@@ -107,59 +84,51 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     // Register before the fetch settles so no decision is missed; any
     // diagnostics already captured are replayed to this handler on registration.
     watch.onDiagnostic(diagnostic => {
-      captured.push(diagnostic);
-      recomputeDistribution();
+      if (denial === null && isStructuralDenial(diagnostic)) {
+        denial = new DistributionDeniedError([diagnostic]);
+        const error = denial;
+        update(() => ({ failure: { error, retry: null } }));
+      }
     });
 
     watch.cached()
       .then(cacheReady => {
-        if (!active) return;
         if (cacheReady) {
-          setState('ready');
+          update(() => ({ settled: true }));
         } else {
-          setState('loading');
-          watch.loaded()
-            .catch(e => { if (active) setError(e); })
-            .finally(() => { if (active) setState('ready'); });
+          update(() => ({ fetching: true }));
         }
       });
+    watch.loaded()
+      .then(() => {
+        update(s => denial === null
+          ? { settled: true, fetching: false, failure: null }
+          : { fetching: false });
+      }, (error: Error) => {
+        update(() => ({ fetching: false, failure: { error, retry: null } }));
+      });
+
     return () => {
       active = false;
-      setState('uninitialized');
-      setProjections([]);
-      setError(null);
-      setDistributionDiagnostic(null);
       watch.stop();
     };
-  }, [...factHashes(given), specification, setProjections, setState, setError, setDistributionDiagnostic]);
+  }, [key, specification]);
 
-  const clearError = React.useCallback(() => setError(null), [setError]);
-  if (owner === null || owner.key !== key || owner.specification !== specification) {
-    return { loading: false, data: null, error: null, distributionPending: false, distributionDiagnostic: null, clearError };
+  if (state === null || state.key !== key || state.specification !== specification) {
+    return empty;
   }
-  const loading = state === 'loading';
-  const data = (state === 'ready' && !error) ? projections : null;
-  // Error outranks pending, including a non-distribution error surfaced by
-  // watch.loaded() — so `distributionPending` and `error` are never both set.
-  const distributionPending = !error && distributionDiagnostic !== null && isDistributionPending(distributionDiagnostic);
-  return { loading, data, error, distributionPending, distributionDiagnostic, clearError };
+  return {
+    data: state.settled ? state.rows : null,
+    loading: !state.settled && state.fetching,
+    failure: state.failure
+  };
 }
 
-// A distribution decision self-heals — render it as `distributionPending`, not
-// an error — when it is `reactive` (the subscription race), or a
-// `principal-excluded` denial: the user is authenticated but not yet in the
-// authorized set, and access is granted by a fact that can still replicate in.
-function isDistributionPending(diagnostic: DistributionDiagnostic): boolean {
-  if (diagnostic.cleared) return false;
-  if (diagnostic.reactive) return true;
-  return diagnostic.code === 'principal-excluded';
-}
-
-// A distribution decision needs intervention — render it as `error` — when it
-// is a structural denial (a missing or narrowed-past rule) that never
-// self-heals, or `not-authenticated`, which is not healed by a fact arriving
-// but by acquiring new tokens or routing the user through login.
-function isDistributionError(diagnostic: DistributionDiagnostic): boolean {
+// A distribution decision that a new attempt cannot change: a structural
+// denial (a missing or narrowed-past rule), or `not-authenticated`, whose way
+// out is signing in. A `reactive` or `principal-excluded` decision is not a
+// failure: the replicator answered with no data, which is the empty state.
+function isStructuralDenial(diagnostic: DistributionDiagnostic): boolean {
   if (diagnostic.cleared || diagnostic.reactive) return false;
   return diagnostic.code === 'no-matching-rule'
     || diagnostic.code === 'spec-more-restrictive-than-rule'

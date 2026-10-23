@@ -29,7 +29,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(result.current.data).toEqual([]);
   });
 
@@ -43,7 +43,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([item]));
   });
 
@@ -56,14 +56,14 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
 
     const item = await j.fact(new Item(root, new Date()));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([item]));
   });
 
@@ -77,14 +77,14 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
 
     await j.fact(new ItemDeleted(item));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(result.current.data).toEqual([]);
   });
 
@@ -99,7 +99,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([description]));
   });
 
@@ -115,7 +115,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([replacement]));
   });
 
@@ -130,7 +130,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([description]));
 
     const replacement = await j.fact(new ItemDescription(item, "description", [description]));
@@ -138,7 +138,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([replacement]));
   });
 
@@ -155,7 +155,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data?.length)).toBe(2);
     expect(roundTrip(result.current.data)).toContainEqual(roundTrip(candidate1));
     expect(roundTrip(result.current.data)).toContainEqual(roundTrip(candidate2));
