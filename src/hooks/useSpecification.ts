@@ -5,14 +5,58 @@ import * as React from 'react';
 export type ProjectionOf<TSpecification> = TSpecification extends SpecificationOf<unknown, infer TProjection> ? TProjection : never;
 type NullableElements<TGiven extends unknown[]> = TGiven extends [infer First, ...infer Rest] ? [First | null, ...NullableElements<Rest>] : TGiven;
 
+/**
+ * The most recent completed attempt failed.
+ */
 export interface SpecificationFailure {
+  /**
+   * Why the attempt failed. A distribution denial is a `DistributionDeniedError`.
+   */
   error: Error;
+  /**
+   * Starts a new attempt for the same given. `null` when trying again cannot
+   * change the answer: a structural distribution denial, or `not-authenticated`,
+   * whose way out is signing in.
+   */
   retry: (() => void) | null;
 }
 
+/**
+ * Three independent instructions to the UI. Render each field on its own, not
+ * as an `if`/`else` chain: an early return on one field hides the others, such
+ * as cached rows behind a failure.
+ *
+ * ```tsx
+ * const { data, loading, failure } = useSpecification(j, spec, given);
+ *
+ * return <>
+ *   {loading && <Spinner />}
+ *   {failure && <Failure error={failure.error} onRetry={failure.retry} />}
+ *   {data === null ? null : data.length === 0 ? <EmptyState /> : <Rows rows={data} />}
+ * </>;
+ * ```
+ */
 export interface SpecificationResult<TProjection> {
+  /**
+   * What to show, always for the current given.
+   *
+   * - `null`: show nothing, and never a spinner. The answer hasn't arrived.
+   * - `[]`: a real answer. Show the empty state. Any result can gain rows later.
+   * - rows: show them. A failed refresh keeps the cached rows.
+   */
   data: TProjection[] | null;
+  /**
+   * Whether to show an indicator. This is the only signal for one.
+   *
+   * True while a fetch is underway with nothing to show, or while a retry the
+   * user asked for is underway. A background refresh of cached data leaves it
+   * false, so cached rows appear without a flash of a spinner.
+   */
   loading: boolean;
+  /**
+   * Whether the most recent completed attempt failed, and the way out if one
+   * exists. A new attempt does not clear it; only a successful answer does.
+   */
   failure: SpecificationFailure | null;
 }
 
@@ -130,7 +174,7 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     };
   }, [key, specification, attempt]);
 
-  if (state === null || state.key !== key || state.specification !== specification) {
+  if (!owned || state === null) {
     return empty;
   }
   return {
