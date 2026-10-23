@@ -37,6 +37,10 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
   const [state, setState] = React.useState<CacheState>('uninitialized');
   const [error, setError] = React.useState<Error | null>(null);
   const [distributionDiagnostic, setDistributionDiagnostic] = React.useState<DistributionDiagnostic | null>(null);
+  // The given and specification the state above belongs to. The effect resets
+  // state only after commit, so a render with a new given must not read it.
+  const [owner, setOwner] = React.useState<{ key: string, specification: unknown } | null>(null);
+  const key = factHashes(given).join(',');
 
   React.useEffect(() => {
     // Wait until all givens are specified.
@@ -44,6 +48,7 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
       return;
 
     let active = true;
+    setOwner({ key, specification });
 
     // Reduce the per-feed distribution decisions the observer captures to a
     // single, intention-revealing signal (issue #179). A non-self-healing
@@ -129,6 +134,9 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
   }, [...factHashes(given), specification, setProjections, setState, setError, setDistributionDiagnostic]);
 
   const clearError = React.useCallback(() => setError(null), [setError]);
+  if (owner === null || owner.key !== key || owner.specification !== specification) {
+    return { loading: false, data: null, error: null, distributionPending: false, distributionDiagnostic: null, clearError };
+  }
   const loading = state === 'loading';
   const data = (state === 'ready' && !error) ? projections : null;
   // Error outranks pending, including a non-distribution error surfaced by
