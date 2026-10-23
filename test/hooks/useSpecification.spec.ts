@@ -29,7 +29,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(result.current.data).toEqual([]);
   });
 
@@ -43,7 +43,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([item]));
   });
 
@@ -56,14 +56,14 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
 
     const item = await j.fact(new Item(root, new Date()));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([item]));
   });
 
@@ -77,14 +77,14 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
 
     await j.fact(new ItemDeleted(item));
     await waitFor(() => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(result.current.data).toEqual([]);
   });
 
@@ -99,7 +99,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([description]));
   });
 
@@ -115,7 +115,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([replacement]));
   });
 
@@ -130,7 +130,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([description]));
 
     const replacement = await j.fact(new ItemDescription(item, "description", [description]));
@@ -138,7 +138,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data)).toEqual(roundTrip([replacement]));
   });
 
@@ -155,7 +155,7 @@ describe("useSpecification", () => {
       expect(result.current.data).toBeTruthy();
     });
     expect(result.current.loading).toBeFalsy();
-    expect(result.current.error).toBeNull();
+    expect(result.current.failure).toBeNull();
     expect(roundTrip(result.current.data?.length)).toBe(2);
     expect(roundTrip(result.current.data)).toContainEqual(roundTrip(candidate1));
     expect(roundTrip(result.current.data)).toContainEqual(roundTrip(candidate2));
@@ -204,6 +204,38 @@ describe("useSpecification", () => {
       expect(result.current.data?.length).toBe(1);
     });
     expect(roundTrip(result.current.data)).toContainEqual(roundTrip(itemInRoot2));
+  });
+
+  it("never renders the previous given's rows after the given changes", async () => {
+    const j = JinagaTest.create({});
+    const root1 = await j.fact(new Root("root-1"));
+    const root2 = await j.fact(new Root("root-2"));
+    const itemInRoot1 = await j.fact(new Item(root1, new Date(1000)));
+    const itemInRoot2 = await j.fact(new Item(root2, new Date(2000)));
+    const hash1 = j.hash(itemInRoot1);
+    const hash2 = j.hash(itemInRoot2);
+
+    const renders: { root: Root; hashes: string[] | null }[] = [];
+    let currentRoot = root1;
+    const { result, rerender } = renderHook(() => {
+      const r = useSpecification(j, itemsInRoot, currentRoot);
+      renders.push({ root: currentRoot, hashes: r.data && r.data.map(i => j.hash(i)) });
+      return r;
+    });
+
+    await waitFor(() => expect(result.current.data?.length).toBe(1));
+
+    currentRoot = root2;
+    rerender();
+    await waitFor(() => expect(result.current.data?.map(i => j.hash(i))).toEqual([hash2]));
+
+    for (const render of renders) {
+      const expected = render.root === root1 ? hash1 : hash2;
+      if (render.hashes !== null) {
+        expect(render.hashes).toEqual([expected]);
+      }
+    }
+    expect(renders.some(r => r.root === root2 && r.hashes === null)).toBe(true);
   });
 });
 
