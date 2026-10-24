@@ -90,21 +90,32 @@ describe("useSpecification result combinations", () => {
     network.failing = true;
     const j = await withOneItem(network);
 
-    const { result } = render(j);
+    const { result, renders } = render(j);
     await waitFor(() => expect(result.current.failure).not.toBeNull());
+    const error = result.current.failure!.error;
 
     network.failing = false;
     const release = network.hold();
+    const before = renders.length;
     act(() => result.current.failure!.retry!());
 
-    await waitFor(() => expect(result.current.loading).toBe(true));
+    await waitFor(() => expect(result.current.failure?.retrying).toBe(true));
+    // The retry found nothing cached and is now waiting on the network.
+    await waitFor(() => expect(network.held).toBeGreaterThan(0));
     expect(result.current.data).toBeNull();
-    expect(result.current.failure?.error.message).toMatch(/ECONNREFUSED/);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.failure?.error).toBe(error);
 
     await act(async () => release());
     await waitFor(() => expect(result.current.data?.length).toBe(1));
     expect(result.current.loading).toBe(false);
     expect(result.current.failure).toBeNull();
+
+    const during = renders.slice(before);
+    // A retry never shows as loading.
+    expect(during.every(r => r.loading === false)).toBe(true);
+    // The failure clears in the same render that delivers the answer.
+    expect(during.every(r => (r.data === null) === (r.failure !== null))).toBe(true);
   });
 
   it("row 5: shows cached rows without an indicator", async () => {
@@ -151,44 +162,133 @@ describe("useSpecification result combinations", () => {
     const before = renders.length;
     act(() => result.current.failure!.retry!());
 
-    await waitFor(() => expect(result.current.loading).toBe(true));
+    await waitFor(() => expect(result.current.failure?.retrying).toBe(true));
     expect(result.current.data?.length).toBe(1);
-    expect(result.current.failure).not.toBeNull();
+    expect(result.current.loading).toBe(false);
 
     await act(async () => release());
     await waitFor(() => expect(result.current.failure).toBeNull());
     expect(result.current.loading).toBe(false);
     expect(result.current.data?.length).toBe(1);
-    // The rows never disappear during the retry.
-    expect(renders.slice(before).every(r => r.data?.length === 1)).toBe(true);
+    // The rows never disappear and no indicator shows during the retry.
+    expect(renders.slice(before).every(r => r.data?.length === 1 && r.loading === false)).toBe(true);
   });
 
-  it("row 6: shows the rows while a retry the user asked for is underway", async () => {
+  it("replaces the failure with the retry's failure", async () => {
+    const network = new ControllableNetwork();
+    network.failing = true;
+    const j = await withOneItem(network);
+
+    const { result, renders } = render(j);
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    const first = result.current.failure!;
+
+    const release = network.hold();
+    const before = renders.length;
+    act(() => first.retry!());
+    await waitFor(() => expect(result.current.failure?.retrying).toBe(true));
+    await waitFor(() => expect(network.held).toBeGreaterThan(0));
+
+    await act(async () => release());
+    await waitFor(() => expect(result.current.failure?.retrying).toBe(false));
+    expect(result.current.failure?.error).not.toBe(first.error);
+    expect(result.current.failure?.error.message).toMatch(/ECONNREFUSED/);
+    expect(result.current.failure?.retry).toBeInstanceOf(Function);
+    expect(result.current.data).toBeNull();
+    expect(renders.slice(before).every(r => r.loading === false && r.failure !== null)).toBe(true);
+  });
+
+  it("shows rows found in the cache while the retry is still underway", async () => {
+    const network = new ControllableNetwork();
+    network.failing = true;
+    const j = await withOneItem(network);
+
+    const { result } = render(j);
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+
+    // Another view loads the same specification, so the retry finds it cached.
+    network.failing = false;
+    await warmCache(j);
+
+    const release = network.hold();
+    act(() => result.current.failure!.retry!());
+    await waitFor(() => expect(result.current.data?.length).toBe(1));
+    expect(result.current.failure?.retrying).toBe(true);
+    expect(result.current.loading).toBe(false);
+
+    // The failure clears only when the retry completes.
+    await act(async () => release());
+    await waitFor(() => expect(result.current.failure).toBeNull());
+    expect(result.current.data?.length).toBe(1);
+  });
+
+  it("starts one attempt when retry is called twice", async () => {
+    const network = new ControllableNetwork();
+    network.failing = true;
+    const j = await withOneItem(network);
+    const watch = jest.spyOn(j, "watch");
+
+    const { result } = render(j);
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+    const retry = result.current.failure!.retry!;
+    const watches = watch.mock.calls.length;
+
+    network.failing = false;
+    const release = network.hold();
+    act(() => retry());
+    await waitFor(() => expect(result.current.failure?.retrying).toBe(true));
+    // A second call, from this copy or the one on the current failure, does nothing.
+    act(() => retry());
+    act(() => result.current.failure!.retry!());
+    expect(watch.mock.calls.length).toBe(watches + 1);
+
+    await act(async () => release());
+    await waitFor(() => expect(result.current.data?.length).toBe(1));
+    expect(watch.mock.calls.length).toBe(watches + 1);
+  });
+
+  it("ignores a retry once the failure has cleared", async () => {
     const network = new ControllableNetwork();
     const j = await withOneItem(network);
     await warmCache(j);
 
     network.failing = true;
+    const watch = jest.spyOn(j, "watch");
     const { result } = render(j);
     await waitFor(() => expect(result.current.failure).not.toBeNull());
     const retry = result.current.failure!.retry!;
 
-    // The first retry succeeds and clears the failure.
     network.failing = false;
     act(() => retry());
     await waitFor(() => expect(result.current.failure).toBeNull());
-    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // The user asks again, e.g. a second click on the same retry action.
-    const release = network.hold();
+    const watches = watch.mock.calls.length;
     act(() => retry());
+    await act(async () => { await Promise.resolve(); });
+    expect(watch.mock.calls.length).toBe(watches);
+    expect(result.current).toEqual({ data: [expect.anything()], loading: false, failure: null });
+  });
+
+  it("shows loading again for the first attempt of a new given", async () => {
+    const network = new ControllableNetwork();
+    network.failing = true;
+    const j = await withOneItem(network);
+
+    let given = root;
+    const { result, rerender } = renderHook(() => useSpecification(j, itemsInRoot, given));
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+
+    network.failing = false;
+    const release = network.hold();
+    given = new Root("other-root");
+    rerender();
     await waitFor(() => expect(result.current.loading).toBe(true));
-    expect(result.current.data?.length).toBe(1);
     expect(result.current.failure).toBeNull();
+    expect(result.current.data).toBeNull();
 
     await act(async () => release());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.data?.length).toBe(1);
+    await waitFor(() => expect(result.current.data).toEqual([]));
+    expect(result.current.loading).toBe(false);
   });
 
   it("ignores a retry from a previous given", async () => {

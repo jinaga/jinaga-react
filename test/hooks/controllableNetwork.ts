@@ -20,6 +20,8 @@ import type { Network } from "jinaga";
 export class ControllableNetwork implements Network {
   public response: FeedsResponse = { feeds: ["f"], decisions: [{ feed: "f", decision: "authorized", reason: "" }] };
   public failing = false;
+  // The number of requests waiting on `hold`.
+  public held = 0;
   private gate: Promise<void> | null = null;
 
   hold(): () => void {
@@ -29,7 +31,11 @@ export class ControllableNetwork implements Network {
   }
 
   private async respond<T>(value: () => T): Promise<T> {
-    if (this.gate) await this.gate;
+    if (this.gate) {
+      this.held++;
+      await this.gate;
+      this.held--;
+    }
     if (this.failing) throw new Error("connect ECONNREFUSED");
     return value();
   }

@@ -81,6 +81,23 @@ describe("useSpecification distribution decisions", () => {
     expect(result.current.failure?.retry).toBeNull();
   });
 
+  it("replaces a retry's failure with a structural denial that arrives during it", async () => {
+    const network = new ControllableNetwork();
+    network.failing = true;
+    const j = makeJinaga(network);
+
+    const { result } = renderHook(() => useSpecification(j, itemsInRoot, root));
+    await waitFor(() => expect(result.current.failure).not.toBeNull());
+
+    network.failing = false;
+    network.response = { feeds: [], decisions: [{ feed: "f", decision: "denied", code: "no-matching-rule", reason: "no rule" }] };
+    act(() => result.current.failure!.retry!());
+
+    await waitFor(() => expect(result.current.failure?.error).toBeInstanceOf(DistributionDeniedError));
+    expect(result.current.failure).toEqual({ error: expect.any(DistributionDeniedError), retry: null, retrying: false });
+    expect(result.current.loading).toBe(false);
+  });
+
   it("shows rows that arrive after a reactive decision", async () => {
     const network = new ControllableNetwork();
     network.response = { feeds: ["f"], decisions: [{ feed: "f", decision: "reactive", reason: "pending authorization" }] };

@@ -34,7 +34,9 @@ export function PostList({ site }: { site: Site }) {
     {loading && <div>Loading posts...</div>}
     {failure && <div>
       Couldn't load posts: {failure.error.message}
-      {failure.retry && <button onClick={failure.retry}>Try again</button>}
+      {failure.retry && <button onClick={failure.retry} disabled={failure.retrying}>
+        {failure.retrying ? 'Trying again...' : 'Try again'}
+      </button>}
     </div>}
     {posts === null ? null : posts.length === 0 ? <div>No posts found.</div> :
       <ul>
@@ -55,7 +57,7 @@ const { data, loading, failure } = useSpecification(j, spec, given);
 
 return <>
   {loading && <Spinner />}
-  {failure && <Failure error={failure.error} onRetry={failure.retry} />}
+  {failure && <Failure error={failure.error} onRetry={failure.retry} retrying={failure.retrying} />}
   {data === null ? null : data.length === 0 ? <EmptyState /> : <Rows rows={data} />}
 </>;
 ```
@@ -63,7 +65,8 @@ return <>
 This structure is the canonical usage. Its rules:
 
 - **`data === null` means show nothing, never a spinner.** The answer hasn't arrived yet.
-- **`loading` is the only signal for an indicator.**
+- **`loading` is the only signal for an indicator.** It covers the first attempt for a given, and only while there is nothing to show.
+- **A failure is an answer.** A retry keeps the result as it was until the retry completes. Its progress is `failure.retrying`, for the "Try again" control to show if you want it shown.
 - **`[]` is a real answer and shows the empty state.**
 - **The three fields are rendered independently, not as an `if`/`else` chain.** An early return on one field hides the others, for example cached rows behind a failure.
 
@@ -79,12 +82,14 @@ Likewise, `if (failure) return <Failure />` hides the saved rows that are still 
 |---|---|---|---|
 | `null` | `false` | `null` | Nothing (the answer hasn't arrived) |
 | `null` | `true` | `null` | An indicator |
+| `null` | `true` | set | The failure: a denial arrived before the first attempt finished |
 | `null` | `false` | set | The failure, with a retry action if `retry` is set |
-| `null` | `true` | set | The failure, and that it is trying again |
+| `null` | `false` | set, `retrying` | The failure, and that it is trying again |
 | rows | `false` | `null` | The rows |
-| rows | `true` | `null` | The rows, refreshing after the user asked to retry |
 | rows | `false` | set | Saved rows, and that a refresh failed |
-| rows | `true` | set | Saved rows, a failed refresh, and a retry in progress |
+| rows | `false` | set, `retrying` | Saved rows, a failed refresh, and a retry in progress |
+
+`loading` is never `true` alongside rows, and a retry never sets it.
 
 ## Full API
 
@@ -95,12 +100,14 @@ Pass `null` for a given that isn't known yet. The hook waits, returning `{ data:
 | Property  | Type                                                     | Meaning |
 | :-------- | :------------------------------------------------------- | :------ |
 | `data`    | `TProjection[] \| null`                                  | What to show. `null`: nothing. `[]`: the empty state. Always for the current given; a render after the given changes never shows the previous given's rows. A failed refresh keeps the cached rows. |
-| `loading` | `boolean`                                                | Whether to show an indicator. `true` while there is nothing to show and a fetch is underway, or while a retry the user asked for is underway. A background refresh of cached data leaves it `false`. |
-| `failure` | `{ error: Error; retry: (() => void) \| null } \| null` | Whether the most recent completed attempt failed, and the way out if one exists. A new attempt does not clear it; only a successful answer does. |
+| `loading` | `boolean`                                                | Whether to show an indicator. `true` only while the first attempt for the current given is underway with nothing to show. A background refresh of cached data leaves it `false`, and a retry never sets it. |
+| `failure` | `{ error: Error; retry: (() => void) \| null; retrying: boolean } \| null` | Whether the most recent completed attempt failed, and the way out if one exists. A retry keeps it until the retry completes, then replaces it with the retry's outcome: `null` on success, or the new failure. `retrying` is `true` from `retry()` until that attempt completes. |
 
 ### Failures and retrying
 
-`failure.retry` starts a new watch for the same given. While it runs, `loading` is `true`, the previous `failure` stays visible, and any rows on screen stay there.
+`failure.retry` starts a new watch for the same given. While it runs, the result keeps describing the failed attempt: `loading` stays `false`, `data` is unchanged, and the previous `failure` stays visible with `retrying: true`. When the retry completes, `failure` becomes `null` and `data` holds the answer in the same render, or `failure` holds the new error.
+
+Calling `retry()` while a retry is underway does nothing; the attempt in flight continues. So an application can retry on its own, for example on each navigation, without canceling an attempt or flashing an indicator. Only the "Try again" control decides whether a retry is visible, by reading `failure.retrying`.
 
 `failure.retry` is `null` when trying again cannot change the answer:
 
@@ -112,13 +119,13 @@ Both arrive as a `DistributionDeniedError`. Read its diagnostics to tell them ap
 ```tsx
 import { DistributionDeniedError } from 'jinaga';
 
-function Failure({ error, onRetry }: { error: Error, onRetry: (() => void) | null }) {
+function Failure({ error, onRetry, retrying }: { error: Error, onRetry: (() => void) | null, retrying: boolean }) {
   const needsLogin = error instanceof DistributionDeniedError &&
     error.diagnostics.some(d => d.code === 'not-authenticated');
 
   return <div>
     {needsLogin ? <a href="/login">Sign in to see this</a> : <>Something went wrong: {error.message}</>}
-    {onRetry && <button onClick={onRetry}>Try again</button>}
+    {onRetry && <button onClick={onRetry} disabled={retrying}>{retrying ? 'Trying again...' : 'Try again'}</button>}
   </div>;
 }
 ```
@@ -130,6 +137,18 @@ Other errors, such as a refused connection, have a `retry`.
 When a specification is covered by a `share ... with ...` distribution rule, the replicator decides what you may read. A `reactive` decision (the authorizing fact hasn't reached the replicator yet) or a `principal-excluded` denial (you're signed in but not in the authorized set) means the replicator answered with no data. That is the empty state, `data: []`, the same as any other empty result. Any result can gain rows later, and these do too if access is granted.
 
 Distribution diagnostics remain developer tooling. Read them through `watch.onDiagnostic`, `j.onDistributionDiagnostic`, or the development console handler, not through the hook's result.
+
+## Migrating from 6.x
+
+Version 7 treats a failure as an answer. A retry no longer sets `loading`, and `failure` gains a required `retrying` field.
+
+| 6.x | 7.x |
+|---|---|
+| `loading` is `true` during a retry | `loading` stays `false`. Read `failure.retrying`. |
+| `retry()` during a retry restarts the watch | `retry()` during a retry does nothing. |
+| `failure` is `{ error, retry }` | `failure` is `{ error, retry, retrying }`. Code that builds a `SpecificationFailure`, such as a test double, must set `retrying`. |
+
+To migrate a component, show the "Try again" control's progress from `failure.retrying` instead of `loading`. Remove any workaround that kept the last rendered value through a retry.
 
 ## Migrating from 5.x
 

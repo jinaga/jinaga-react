@@ -19,6 +19,12 @@ export interface SpecificationFailure {
    * whose way out is signing in.
    */
   retry: (() => void) | null;
+  /**
+   * True from `retry()` until that attempt completes. A "Try again" control
+   * reads it for its progress indicator. The rest of the result keeps
+   * describing the failed attempt until the retry completes.
+   */
+  retrying: boolean;
 }
 
 /**
@@ -31,7 +37,7 @@ export interface SpecificationFailure {
  *
  * return <>
  *   {loading && <Spinner />}
- *   {failure && <Failure error={failure.error} onRetry={failure.retry} />}
+ *   {failure && <Failure error={failure.error} onRetry={failure.retry} retrying={failure.retrying} />}
  *   {data === null ? null : data.length === 0 ? <EmptyState /> : <Rows rows={data} />}
  * </>;
  * ```
@@ -48,14 +54,16 @@ export interface SpecificationResult<TProjection> {
   /**
    * Whether to show an indicator. This is the only signal for one.
    *
-   * True while a fetch is underway with nothing to show, or while a retry the
-   * user asked for is underway. A background refresh of cached data leaves it
-   * false, so cached rows appear without a flash of a spinner.
+   * True only while the first attempt for the current given is underway with
+   * nothing to show. A background refresh of cached data leaves it false, so
+   * cached rows appear without a flash of a spinner. A retry never sets it:
+   * read `failure.retrying` instead.
    */
   loading: boolean;
   /**
    * Whether the most recent completed attempt failed, and the way out if one
-   * exists. A new attempt does not clear it; only a successful answer does.
+   * exists. A retry keeps it until the retry completes, then replaces it with
+   * the retry's outcome: `null` on success, or the new failure.
    */
   failure: SpecificationFailure | null;
 }
@@ -70,11 +78,12 @@ interface State<TProjection> {
   settled: boolean;
   // True while a fetch is underway with nothing to show.
   fetching: boolean;
+  // True once an attempt for this given has completed, whether it succeeded
+  // or failed. A retry leaves it set, so a retry never shows as loading.
+  completed: boolean;
   failure: SpecificationFailure | null;
-  // Counts the retries the user asked for. A change restarts the watch.
+  // Counts the retries. A change restarts the watch.
   attempt: number;
-  // True from a retry until that attempt completes.
-  retrying: boolean;
   // While a retry restarts the watch, the rows on screen stay there and the
   // new watch fills this list instead. It replaces them once it has an answer.
   buffer: TProjection[] | null;
@@ -99,11 +108,16 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     let active = true;
     const owns = (s: State<TProjection> | null): s is State<TProjection> =>
       s !== null && s.key === key && s.specification === specification;
-    setState(s => owns(s) && s.retrying
+    setState(s => owns(s) && s.failure?.retrying
       ? { ...s, fetching: false, rows: s.settled ? s.rows : [], buffer: s.settled ? [] : null }
-      : { key, specification, rows: [], settled: false, fetching: false, failure: null, attempt, retrying: false, buffer: null });
+      : { key, specification, rows: [], settled: false, fetching: false, completed: false, failure: null, attempt, buffer: null });
 
-    const retry = () => setState(s => owns(s) ? { ...s, attempt: s.attempt + 1, retrying: true } : s);
+    // Only a failure can be retried, and only once at a time: a call while a
+    // retry is underway leaves the attempt in flight alone. Every copy of this
+    // function reads the same state, so the guard covers stale copies too.
+    const retry = () => setState(s => owns(s) && s.failure !== null && s.failure.retry !== null && !s.failure.retrying
+      ? { ...s, attempt: s.attempt + 1, failure: { ...s.failure, retrying: true } }
+      : s);
 
     const update = (change: (s: State<TProjection>) => Partial<State<TProjection>>) => {
       if (!active) return;
@@ -147,7 +161,7 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
       if (denial === null && isStructuralDenial(diagnostic)) {
         denial = new DistributionDeniedError([diagnostic]);
         const error = denial;
-        update(() => ({ failure: { error, retry: null } }));
+        update(() => ({ failure: { error, retry: null, retrying: false } }));
       }
     });
 
@@ -162,10 +176,10 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
     watch.loaded()
       .then(() => {
         update(s => denial === null
-          ? { ...settled(s), fetching: false, retrying: false, failure: null }
-          : { fetching: false, retrying: false });
+          ? { ...settled(s), fetching: false, completed: true, failure: null }
+          : { fetching: false, completed: true });
       }, (error: Error) => {
-        update(() => ({ fetching: false, retrying: false, failure: { error, retry } }));
+        update(() => ({ fetching: false, completed: true, failure: { error, retry, retrying: false } }));
       });
 
     return () => {
@@ -179,7 +193,7 @@ export function useSpecification<TGiven extends unknown[], TProjection>(j: Jinag
   }
   return {
     data: state.settled ? state.rows : null,
-    loading: state.retrying || (!state.settled && state.fetching),
+    loading: !state.completed && !state.settled && state.fetching,
     failure: state.failure
   };
 }
